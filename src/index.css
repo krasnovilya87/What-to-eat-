@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after,
+  html,
+  body {
+    -ms-overflow-style: none !important; /* IE and Edge */
+    scrollbar-width: none !important; /* Firefox */
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    outline: none;
+  }
+
+  *::-webkit-scrollbar,
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    display: none !important; /* Chrome, Safari, Opera */
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+
+  body {
+    @apply bg-stone-50 text-stone-900 font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+  }
+
+  @keyframes ios-jiggle-1 {
+    0% { transform: rotate(-1.2deg) translateY(-0.4px); }
+    50% { transform: rotate(1.4deg) translateY(0.4px); }
+    100% { transform: rotate(-1.2deg) translateY(-0.4px); }
+  }
+
+  @keyframes ios-jiggle-2 {
+    0% { transform: rotate(1.3deg) translateY(0.4px); }
+    50% { transform: rotate(-1.2deg) translateY(-0.4px); }
+    100% { transform: rotate(1.3deg) translateY(0.4px); }
+  }
+
+  .animate-ios-jiggle-1 {
+    animation: ios-jiggle-1 0.26s ease-in-out infinite alternate !important;
+    transform-origin: 50% 50%;
+  }
+
+  .animate-ios-jiggle-2 {
+    animation: ios-jiggle-2 0.28s ease-in-out infinite alternate !important;
+    transform-origin: 50% 50%;
+  }
+}
+

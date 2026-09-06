@@ -1,0 +1,6 @@
+{
+  "name": "Что поесть?",
+  "description": "Умный кулинарный помощник: рецепты, холодильник, список покупок и напоминания.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

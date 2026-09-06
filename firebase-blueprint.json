@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth User UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar URL"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Profile creation timestamp"
+        }
+      },
+      "required": ["uid", "email"]
+    },
+    "UserData": {
+      "title": "User Culinary Data",
+      "description": "User state containing recipes, fridge items, shopping items, and receipts",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "recipes": {
+          "type": "array",
+          "description": "Array of user recipes"
+        },
+        "fridge": {
+          "type": "array",
+          "description": "Fridge items"
+        },
+        "grains": {
+          "type": "array",
+          "description": "Grains and groceries"
+        },
+        "spices": {
+          "type": "array",
+          "description": "Spices"
+        },
+        "shoppingList": {
+          "type": "array",
+          "description": "Shopping list items"
+        },
+        "purchases": {
+          "type": "array",
+          "description": "Receipt purchases"
+        },
+        "reminders": {
+          "type": "array",
+          "description": "Shopping reminders"
+        },
+        "stores": {
+          "type": "array",
+          "description": "Store locations"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Profile document for each authenticated user"
+    },
+    "/users/{userId}/data/{dataId}": {
+      "schema": "UserData",
+      "description": "Private state documents for user recipes and lists"
+    }
+  }
+}
