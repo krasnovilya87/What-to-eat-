@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useAppState } from '../useAppState';
 import { v4 as uuidv4 } from 'uuid';
-import { Plus, Loader2, Star } from 'lucide-react';
+import { Plus, Loader2, Star, Camera, Check } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../App';
 import { InventoryItem } from '../types';
 import { cleanIngredientName, parseQuantity } from '../utils/ingredients';
 import { apiPost } from '../utils/api';
+import ScanFridgeModal from './ScanFridgeModal';
 
 type SectionKey = 'fridge' | 'grains' | 'spices';
 
@@ -40,18 +41,18 @@ const SECTIONS: SectionConfig[] = [
     placeholder: 'Что есть в холодильнике?',
     emptyText: 'В холодильнике пока пусто.',
     theme: {
-      container: 'bg-stone-800 rounded-[2rem] p-6 text-white overflow-hidden shadow-lg border border-stone-700/50',
+      container: 'bg-stone-800 rounded-[2rem] p-6 text-white overflow-hidden shadow-lg',
       titleColor: 'text-white',
-      input: 'bg-white/10 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/50 focus:outline-none focus:border-white/30 transition-colors',
-      submitBtn: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl px-4 flex items-center justify-center disabled:opacity-50 transition-colors',
-      border: 'border-white/10',
+      input: 'bg-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/50 focus:outline-none focus:bg-white/20 transition-colors shadow-inner',
+      submitBtn: 'bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl px-4 flex items-center justify-center disabled:opacity-50 transition-colors shadow-xs',
+      border: 'bg-white/10',
       itemText: 'text-white/95 font-medium truncate flex-1 leading-tight',
-      quantityInput: 'bg-transparent border-b border-transparent focus:border-white/30 text-white/60 text-sm w-16 text-right px-1 py-0.5 focus:outline-none transition-colors shrink-0 placeholder-white/30',
+      quantityInput: 'bg-transparent text-white/60 text-sm w-16 text-right px-1 py-0.5 focus:outline-none transition-colors shrink-0 placeholder-white/30',
       trashBtn: 'text-white/30 hover:text-red-400 p-1 rounded-md transition-colors',
       emptyTextColor: 'text-white/50',
       permanentBtnActive: 'text-amber-400 hover:text-amber-300',
       permanentBtnInactive: 'text-white/35 hover:text-white/80',
-      permanentBadge: 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+      permanentBadge: 'bg-amber-400/20 text-amber-300'
     }
   },
   {
@@ -61,18 +62,18 @@ const SECTIONS: SectionConfig[] = [
     placeholder: 'Что есть из круп? (рис, гречка, овсянка...)',
     emptyText: 'В крупах пока пусто.',
     theme: {
-      container: 'bg-amber-500 rounded-[2rem] p-6 text-stone-950 overflow-hidden shadow-lg border border-amber-400/50',
+      container: 'bg-amber-500 rounded-[2rem] p-6 text-stone-950 overflow-hidden shadow-lg',
       titleColor: 'text-stone-950',
-      input: 'bg-black/10 border border-black/15 rounded-2xl px-4 py-3 text-sm text-stone-950 placeholder-stone-800/60 focus:outline-none focus:border-stone-900 transition-colors',
-      submitBtn: 'bg-stone-900 hover:bg-stone-800 text-white rounded-2xl px-4 flex items-center justify-center disabled:opacity-50 transition-colors',
-      border: 'border-black/10',
+      input: 'bg-black/10 rounded-2xl px-4 py-3 text-sm text-stone-950 placeholder-stone-800/60 focus:outline-none focus:bg-black/15 transition-colors shadow-inner',
+      submitBtn: 'bg-stone-900 hover:bg-stone-800 text-white rounded-2xl px-4 flex items-center justify-center disabled:opacity-50 transition-colors shadow-xs',
+      border: 'bg-black/10',
       itemText: 'text-stone-950 font-medium truncate flex-1 leading-tight',
-      quantityInput: 'bg-transparent border-b border-transparent focus:border-stone-900 text-stone-900 text-sm w-16 text-right px-1 py-0.5 focus:outline-none transition-colors shrink-0 placeholder-stone-800/40',
+      quantityInput: 'bg-transparent text-stone-900 text-sm w-16 text-right px-1 py-0.5 focus:outline-none transition-colors shrink-0 placeholder-stone-800/40',
       trashBtn: 'text-stone-900/40 hover:text-red-700 p-1 rounded-md transition-colors',
       emptyTextColor: 'text-stone-800/60',
       permanentBtnActive: 'text-stone-950 hover:text-stone-800',
       permanentBtnInactive: 'text-stone-900/35 hover:text-stone-950',
-      permanentBadge: 'bg-black/15 text-stone-950 border border-black/25'
+      permanentBadge: 'bg-black/15 text-stone-950'
     }
   },
   {
@@ -82,24 +83,26 @@ const SECTIONS: SectionConfig[] = [
     placeholder: 'Что есть из соусов и приправ?',
     emptyText: 'В приправах и соусах пока пусто.',
     theme: {
-      container: 'bg-red-600 rounded-[2rem] p-6 text-white overflow-hidden shadow-lg border border-red-500/50',
+      container: 'bg-red-600 rounded-[2rem] p-6 text-white overflow-hidden shadow-lg',
       titleColor: 'text-white',
-      input: 'bg-white/15 border border-white/20 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/60 focus:outline-none focus:border-white/40 transition-colors',
+      input: 'bg-white/15 rounded-2xl px-4 py-3 text-sm text-white placeholder-white/60 focus:outline-none focus:bg-white/25 transition-colors shadow-inner',
       submitBtn: 'bg-white hover:bg-red-50 text-red-600 font-bold rounded-2xl px-4 flex items-center justify-center disabled:opacity-50 transition-colors shadow-xs',
-      border: 'border-white/15',
+      border: 'bg-white/15',
       itemText: 'text-white font-medium truncate flex-1 leading-tight',
-      quantityInput: 'bg-transparent border-b border-transparent focus:border-white/40 text-white/75 text-sm w-16 text-right px-1 py-0.5 focus:outline-none transition-colors shrink-0 placeholder-white/40',
+      quantityInput: 'bg-transparent text-white/75 text-sm w-16 text-right px-1 py-0.5 focus:outline-none transition-colors shrink-0 placeholder-white/40',
       trashBtn: 'text-white/40 hover:text-white p-1 rounded-md transition-colors',
       emptyTextColor: 'text-white/60',
       permanentBtnActive: 'text-amber-300 hover:text-amber-200',
       permanentBtnInactive: 'text-white/40 hover:text-white/90',
-      permanentBadge: 'bg-black/25 text-amber-200 border border-amber-300/30'
+      permanentBadge: 'bg-black/25 text-amber-200'
     }
   }
 ];
 
 export default function FridgeView({ state }: { state: ReturnType<typeof useAppState> }) {
   const { fridge, setFridge, grains, setGrains, spices, setSpices } = state;
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = useState<{
     id: string;
     name: string;
@@ -121,6 +124,31 @@ export default function FridgeView({ state }: { state: ReturnType<typeof useAppS
     }
   };
 
+  const handleAddScannedItems = (newItems: {
+    fridge: InventoryItem[];
+    grains: InventoryItem[];
+    spices: InventoryItem[];
+  }) => {
+    let totalCount = 0;
+    if (newItems.fridge.length > 0) {
+      setFridge(prev => [...(prev || []), ...newItems.fridge]);
+      totalCount += newItems.fridge.length;
+    }
+    if (newItems.grains.length > 0) {
+      setGrains(prev => [...(prev || []), ...newItems.grains]);
+      totalCount += newItems.grains.length;
+    }
+    if (newItems.spices.length > 0) {
+      setSpices(prev => [...(prev || []), ...newItems.spices]);
+      totalCount += newItems.spices.length;
+    }
+
+    if (totalCount > 0) {
+      setToastMessage(`Добавлено ${totalCount} продуктов в «У меня есть»!`);
+      setTimeout(() => setToastMessage(null), 3500);
+    }
+  };
+
   const confirmRemove = () => {
     if (!itemToDelete) return;
     const { id, sectionKey } = itemToDelete;
@@ -135,6 +163,36 @@ export default function FridgeView({ state }: { state: ReturnType<typeof useAppS
 
   return (
     <div className="flex flex-col gap-6 pb-12 px-2">
+      {/* Тост об успешном добавлении */}
+      {toastMessage && (
+        <div className="bg-stone-900 text-white px-4 py-3 rounded-2xl text-xs font-semibold shadow-lg flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+              <Check size={12} strokeWidth={3} />
+            </div>
+            <span>{toastMessage}</span>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setToastMessage(null)}
+            className="text-stone-400 hover:text-white text-xs cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Большая кнопка "Добавить фото" */}
+      <button
+        id="btn-add-fridge-photo"
+        type="button"
+        onClick={() => setIsScanModalOpen(true)}
+        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base py-4 px-6 rounded-2xl sm:rounded-[2rem] shadow-md hover:shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2.5 cursor-pointer"
+      >
+        <Camera size={22} className="shrink-0" />
+        <span>Добавить фото</span>
+      </button>
+
       {SECTIONS.map((section) => (
         <InventoryBlock
           key={section.key}
@@ -151,10 +209,17 @@ export default function FridgeView({ state }: { state: ReturnType<typeof useAppS
         />
       ))}
 
+      {/* Модальное окно распознавания фото холодильника / полок */}
+      <ScanFridgeModal
+        isOpen={isScanModalOpen}
+        onClose={() => setIsScanModalOpen(false)}
+        onAddItems={handleAddScannedItems}
+      />
+
       {/* Модальное окно подтверждения удаления */}
       {itemToDelete && (
         <div className="fixed inset-0 bg-stone-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl border border-stone-200">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl">
             <h3 className="text-xl font-bold text-stone-900 mb-2">Удалить продукт?</h3>
             <p className="text-stone-500 mb-6 text-sm">
               Вы уверены, что хотите удалить «<span className="font-semibold text-stone-700">{itemToDelete.name}</span>» из раздела «{itemToDelete.sectionTitle}»?
@@ -162,13 +227,13 @@ export default function FridgeView({ state }: { state: ReturnType<typeof useAppS
             <div className="flex justify-end gap-3">
               <button 
                 onClick={cancelRemove}
-                className="px-5 py-2.5 text-stone-600 font-medium bg-stone-100 rounded-xl hover:bg-stone-200 transition-colors text-sm"
+                className="px-5 py-2.5 text-stone-600 font-medium bg-stone-100 rounded-xl hover:bg-stone-200 transition-colors text-sm cursor-pointer"
               >
                 Отмена
               </button>
               <button 
                 onClick={confirmRemove}
-                className="px-5 py-2.5 text-white font-medium bg-red-500 rounded-xl hover:bg-red-600 transition-colors shadow-sm text-sm"
+                className="px-5 py-2.5 text-white font-medium bg-stone-900 rounded-xl hover:bg-stone-800 transition-colors shadow-sm text-sm cursor-pointer"
               >
                 Удалить
               </button>
@@ -180,21 +245,19 @@ export default function FridgeView({ state }: { state: ReturnType<typeof useAppS
   );
 }
 
-interface InventoryBlockProps {
-  key?: string;
+function InventoryBlock({
+  config,
+  data,
+  onRequestDelete
+}: {
+  key?: React.Key;
   config: SectionConfig;
   data: {
     items: InventoryItem[];
     setItems: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
   };
   onRequestDelete: (item: InventoryItem) => void;
-}
-
-function InventoryBlock({
-  config,
-  data,
-  onRequestDelete
-}: InventoryBlockProps) {
+}) {
   const { title, icon, placeholder, emptyText, theme } = config;
   const { items, setItems } = data;
   const [inputVal, setInputVal] = useState('');
@@ -323,7 +386,7 @@ function InventoryBlock({
               onDragEnd={(_, info) => {
                 if (info.offset.x < -80) onRequestDelete(item);
               }}
-              className={cn("flex items-center justify-between pb-2.5 pt-1 border-b", theme.border)}
+              className="flex items-center justify-between pb-2.5 pt-1 relative"
             >
               <div className="flex items-center justify-between gap-2.5 flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -368,6 +431,8 @@ function InventoryBlock({
                   />
                 </div>
               </div>
+              {/* Мягкий разделитель без обводок */}
+              <div className={cn("absolute bottom-0 left-0 right-0 h-px", theme.border)} />
             </motion.div>
           ))
         )}

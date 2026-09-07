@@ -459,6 +459,93 @@ async function startServer() {
     }
   });
 
+  app.post("/api/scan-fridge-photos", async (req, res) => {
+    try {
+      const { images } = req.body;
+      if (!images || !Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ error: "Не переданы фотографии продуктов" });
+      }
+
+      const parts: any[] = [];
+
+      for (const imgBase64 of images) {
+        if (typeof imgBase64 === 'string') {
+          const matches = imgBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+            parts.push({
+              inlineData: {
+                mimeType: matches[1],
+                data: matches[2]
+              }
+            });
+          }
+        }
+      }
+
+      if (parts.length === 0) {
+        return res.status(400).json({ error: "Некорректный формат фотографий" });
+      }
+
+      const prompt = `
+        Ты кулинарный ассистент. На этих фотографиях запечатлено содержимое полок холодильника, морозилки, кухонного шкафа или кладовой.
+        Пользователь сделал несколько фотографий разных полок и отделений.
+        Внимательно изучи ВСЕ предоставленные фотографии и определи все видимые продукты, ингредиенты, напитки, соусы, консервы и упаковки.
+
+        Правила:
+        1. Названия продуктов пиши на русском языке, в именительном падеже, понятными и чистыми словами (например: "Молоко", "Сыр Российский", "Яйца", "Огурцы", "Гречка", "Майонез", "Сливочное масло", "Яблоки", "Томатная паста", "Куриное филе").
+        2. Если продукт виден на нескольких фото с разных ракурсов, не дублируй его!
+        3. Если видно количество или вес по упаковке или штукам, укажи в quantity (например: "1 уп", "6 шт", "500 г", "1 л", "2 шт"), если точно не видно - укажи примерное или оставь пустой строкой "".
+        4. Обязательно укажи section для каждого продукта строго одно из трех значений:
+           - "fridge": свежие продукты, молочка, сыр, яйца, мясо, рыба, колбаса, овощи, фрукты, зелень, готовые блюда, заморозка.
+           - "grains": крупы, макароны, хлопья, мука, бобовые (фасоль, чечевица), консервы, сахар, соль, сухофрукты.
+           - "spices": растительное или оливковое масло, соусы, кетчуп, майонез, горчица, специи, приправы, уксус, соевый соус.
+      `;
+
+      parts.push({ text: prompt });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: { parts },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              items: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING, description: "Название продукта на русском языке" },
+                    quantity: { type: Type.STRING, description: "Количество или вес (например: '1 шт', '500 г') или пустая строка" },
+                    section: { 
+                      type: Type.STRING, 
+                      description: "Категория: 'fridge' (холодильник), 'grains' (крупы/макароны), 'spices' (приправы/соусы/масло)"
+                    }
+                  },
+                  required: ["name", "section"]
+                },
+                description: "Список распознанных продуктов"
+              }
+            },
+            required: ["items"]
+          }
+        }
+      });
+
+      const resultText = response.text;
+      if (!resultText) {
+        throw new Error("No response from Gemini");
+      }
+
+      const parsed = JSON.parse(resultText);
+      res.json(parsed);
+    } catch (error: any) {
+      console.error("Gemini API error (scan-fridge-photos):", error);
+      res.status(500).json({ error: "Не удалось распознать продукты по фото. Попробуйте сделать более чёткие фото." });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
