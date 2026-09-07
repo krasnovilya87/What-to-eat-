@@ -92,7 +92,7 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
       const nameFromText = extractNameFromInput(payload.textInput);
       setInitialDishName(nameFromText);
       setIsManualModalOpen(true);
-      setError('ИИ-сервер недоступен на статическом хостинге. Фото сохранено — введите название и состав.');
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -130,8 +130,8 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
         <h1 className="text-xl font-bold tracking-tight text-stone-900">Добавить блюдо</h1>
       </div>
 
-      {error && (
-        <div className="text-red-700 bg-red-50 p-3.5 rounded-2xl text-xs flex flex-col gap-2 shadow-xs">
+      {error && !isManualModalOpen && (
+        <div className="text-stone-700 bg-stone-100 p-3.5 rounded-2xl text-xs flex flex-col gap-2 shadow-xs">
           <span>{error}</span>
           <button
             type="button"
@@ -176,13 +176,13 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
 
       {/* Разделитель */}
       <div className="flex items-center gap-3 px-2">
-        <hr className="flex-1 border-stone-200" />
+        <div className="flex-1 h-px bg-stone-200/60" />
         <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">или</span>
-        <hr className="flex-1 border-stone-200" />
+        <div className="flex-1 h-px bg-stone-200/60" />
       </div>
 
       {/* Вариант 2: По ссылке */}
-      <div className="bg-white rounded-2xl p-4 border border-stone-200/80 shadow-xs">
+      <div className="bg-white rounded-2xl p-4 shadow-xs">
         <div className="flex items-center gap-2 mb-2.5">
           <div className="w-5 h-5 rounded-md bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
             <LinkIcon size={12} />
@@ -198,7 +198,7 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
             placeholder="Вставьте ссылку https://..."
             value={linkInput}
             onChange={(e) => setLinkInput(e.target.value)}
-            className="flex-1 min-w-0 bg-stone-50 border border-stone-200 focus:border-stone-400 focus:bg-white rounded-xl px-3 py-2.5 text-xs text-stone-800 placeholder-stone-400 focus:outline-none transition-colors"
+            className="flex-1 min-w-0 bg-stone-50 focus:bg-white rounded-xl px-3 py-2.5 text-xs text-stone-800 placeholder-stone-400 focus:outline-none shadow-inner transition-colors"
           />
           <button 
             type="submit" 
@@ -212,9 +212,9 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
 
       {/* Разделитель */}
       <div className="flex items-center gap-3 px-2">
-        <hr className="flex-1 border-stone-200" />
+        <div className="flex-1 h-px bg-stone-200/60" />
         <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">или</span>
-        <hr className="flex-1 border-stone-200" />
+        <div className="flex-1 h-px bg-stone-200/60" />
       </div>
 
       {/* Вариант 3: Добавить вручную */}

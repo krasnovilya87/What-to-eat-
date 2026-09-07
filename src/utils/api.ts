@@ -1,7 +1,5 @@
 // Centralized API client with automatic backend URL resolution and safe response parsing
 
-const CLOUD_RUN_BACKEND = 'https://ais-pre-3izdkmsaofonpkjibb4336-29735408137.asia-east1.run.app';
-
 export function getApiBaseUrl(): string {
   // If explicitly configured in env
   const envApiUrl = (import.meta as any).env?.VITE_API_BASE_URL;
@@ -9,21 +7,7 @@ export function getApiBaseUrl(): string {
     return envApiUrl.replace(/\/$/, '');
   }
 
-  // If running in browser
-  if (typeof window !== 'undefined' && window.location) {
-    const hostname = window.location.hostname;
-    // When hosted on Firebase Hosting, GitHub Pages, Vercel, or external static hosting
-    if (
-      hostname.endsWith('.web.app') ||
-      hostname.endsWith('.firebaseapp.com') ||
-      hostname.endsWith('.github.io') ||
-      hostname.endsWith('.vercel.app')
-    ) {
-      return CLOUD_RUN_BACKEND;
-    }
-  }
-
-  // By default (Cloud Run, local Vite dev server with proxy), use relative paths
+  // By default, use relative paths (/api/...)
   return '';
 }
 
