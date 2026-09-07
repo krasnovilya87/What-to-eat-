@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { cn } from '../App';
 import { InventoryItem } from '../types';
 import { cleanIngredientName, parseQuantity } from '../utils/ingredients';
+import { apiPost } from '../utils/api';
 
 type SectionKey = 'fridge' | 'grains' | 'spices';
 
@@ -209,22 +210,16 @@ function InventoryBlock({
     let quantityToUse = '';
 
     try {
-      const res = await fetch('/api/normalize-ingredient', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ingredient: trimmed })
-      });
-      if (res.ok) {
-        const result = await res.json();
-        if (result.canonicalName) {
-          nameToUse = result.canonicalName;
-        }
-        if (result.quantity) {
-          quantityToUse = result.quantity;
-        }
+      const result = await apiPost('/api/normalize-ingredient', { ingredient: trimmed });
+      if (result.canonicalName) {
+        nameToUse = result.canonicalName;
+      }
+      if (result.quantity) {
+        quantityToUse = result.quantity;
       }
     } catch (err) {
-      console.error('Failed to normalize ingredient:', err);
+      // Fallback cleanly to client-side parsing without crashing
+      console.warn('Backend normalize not reachable, using client-side parsing:', err);
     } finally {
       setIsLoading(false);
     }

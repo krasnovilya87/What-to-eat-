@@ -5,6 +5,7 @@ import { ArrowLeft, Upload, Link as LinkIcon, Loader2, PenLine, Sparkles, Chevro
 import { v4 as uuidv4 } from 'uuid';
 import EditRecipeModal from './EditRecipeModal';
 import { calculateMacros } from '../utils/macrosCalculator';
+import { apiPost } from '../utils/api';
 
 export default function AddRecipeView({ state }: { state: ReturnType<typeof useAppState> }) {
   const { setRecipes } = state;
@@ -14,29 +15,39 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [initialDishName, setInitialDishName] = useState<string>('');
+
+  const extractNameFromInput = (input?: string): string => {
+    if (!input) return '';
+    try {
+      if (input.startsWith('http://') || input.startsWith('https://')) {
+        const url = new URL(input);
+        const parts = url.pathname.split('/').filter(Boolean);
+        const last = parts[parts.length - 1] || '';
+        const decoded = decodeURIComponent(last)
+          .replace(/[-_]/g, ' ')
+          .replace(/\.(html|php|asp|jsp)$/i, '')
+          .replace(/\d+/g, '')
+          .trim();
+        if (decoded.length > 2) {
+          return decoded.charAt(0).toUpperCase() + decoded.slice(1);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return input.length <= 50 ? input : '';
+  };
 
   const extractRecipe = async (payload: { imageBase64?: string, textInput?: string }) => {
     setLoading(true);
     setError(null);
+    if (payload.imageBase64) {
+      setUploadedImage(payload.imageBase64);
+    }
     try {
-      const response = await fetch('/api/extract-recipe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        let errorMessage = 'Ошибка при распознавании';
-        try {
-          const errData = await response.json();
-          if (errData.error) {
-            errorMessage = errData.error;
-          }
-        } catch (e) {
-          // ignore json parse error
-        }
-        throw new Error(errorMessage);
-      }
-      const data = await response.json();
+      const data = await apiPost('/api/extract-recipe', payload);
       
       let recipeMacros = data.macros;
       let recipePortions = data.portions || 1;
@@ -77,7 +88,11 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
       setRecipes(prev => [...prev, newRecipe]);
       navigate('/');
     } catch (err: any) {
-      setError(err.message || 'Произошла ошибка');
+      console.warn('AI extraction unavailable, opening manual entry:', err);
+      const nameFromText = extractNameFromInput(payload.textInput);
+      setInitialDishName(nameFromText);
+      setIsManualModalOpen(true);
+      setError('ИИ-сервер недоступен на статическом хостинге. Фото сохранено — введите название и состав.');
     } finally {
       setLoading(false);
     }
@@ -116,18 +131,25 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
       </div>
 
       {error && (
-        <div className="text-red-600 bg-red-50 p-3 rounded-xl text-xs border border-red-200">
-          {error}
+        <div className="text-red-700 bg-red-50 p-3.5 rounded-2xl text-xs flex flex-col gap-2 shadow-xs">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setIsManualModalOpen(true)}
+            className="text-stone-900 font-bold underline text-left cursor-pointer w-fit"
+          >
+            Заполнить рецепт вручную →
+          </button>
         </div>
       )}
 
       {/* Вариант 1: Загрузить фото */}
       <div 
         onClick={() => fileInputRef.current?.click()}
-        className="group bg-gradient-to-br from-emerald-900 to-emerald-950 rounded-2xl p-4 flex items-center justify-between gap-3 cursor-pointer hover:from-emerald-850 hover:to-emerald-900 transition-all text-white shadow-sm border border-emerald-800/40 active:scale-[0.99]"
+        className="group bg-gradient-to-br from-emerald-900 to-emerald-950 rounded-2xl p-4 flex items-center justify-between gap-3 cursor-pointer hover:from-emerald-850 hover:to-emerald-900 transition-all text-white shadow-sm active:scale-[0.99]"
       >
         <div className="flex items-center gap-3.5 min-w-0">
-          <div className="w-11 h-11 rounded-xl bg-emerald-800/80 text-emerald-200 flex items-center justify-center shrink-0 border border-emerald-700/50 shadow-inner">
+          <div className="w-11 h-11 rounded-xl bg-emerald-800/80 text-emerald-200 flex items-center justify-center shrink-0 shadow-inner">
             <Upload size={20} />
           </div>
           <div className="min-w-0">
@@ -198,10 +220,10 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
       {/* Вариант 3: Добавить вручную */}
       <div 
         onClick={() => setIsManualModalOpen(true)}
-        className="group bg-white rounded-2xl p-4 border border-stone-200/80 shadow-xs hover:bg-stone-50/80 transition-all cursor-pointer flex items-center justify-between gap-3 active:scale-[0.99]"
+        className="group bg-white rounded-2xl p-4 shadow-xs hover:bg-stone-50/80 transition-all cursor-pointer flex items-center justify-between gap-3 active:scale-[0.99]"
       >
         <div className="flex items-center gap-3.5 min-w-0">
-          <div className="w-11 h-11 rounded-xl bg-stone-100 text-stone-700 flex items-center justify-center shrink-0 border border-stone-200">
+          <div className="w-11 h-11 rounded-xl bg-stone-100 text-stone-700 flex items-center justify-center shrink-0">
             <PenLine size={19} />
           </div>
           <div className="min-w-0">
@@ -218,7 +240,7 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
       {/* Индикатор загрузки */}
       {loading && (
         <div className="fixed inset-0 bg-stone-950/40 backdrop-blur-xs flex flex-col items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-6 flex flex-col items-center max-w-xs w-full shadow-2xl border border-stone-200 text-center">
+          <div className="bg-white rounded-3xl p-6 flex flex-col items-center max-w-xs w-full shadow-2xl text-center">
             <Loader2 className="animate-spin text-emerald-600 mb-3" size={40} />
             <p className="font-bold text-stone-900 text-base">ИИ распознает рецепт...</p>
             <p className="text-stone-500 text-xs mt-1">Извлекаем название, состав и порции</p>
@@ -229,10 +251,21 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
       {/* Модальное окно ручного добавления рецепта */}
       {isManualModalOpen && (
         <EditRecipeModal 
+          recipe={(uploadedImage || initialDishName || linkInput) ? {
+            id: uuidv4(),
+            name: initialDishName || '',
+            ingredients: [],
+            instructions: [],
+            imageUrl: uploadedImage || undefined,
+            sourceUrl: linkInput || undefined,
+            portions: 1,
+            basePortions: 1
+          } : undefined}
           setRecipes={setRecipes}
           onClose={() => {
             setIsManualModalOpen(false);
-            navigate('/');
+            setUploadedImage(null);
+            setInitialDishName('');
           }} 
         />
       )}

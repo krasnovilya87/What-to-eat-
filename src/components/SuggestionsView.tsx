@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAppState } from '../useAppState';
 import { Sparkles, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { cn } from '../App';
+import { apiPost } from '../utils/api';
 
 type Suggestion = {
   name: string;
@@ -22,32 +23,14 @@ export default function SuggestionsView({ state }: { state: ReturnType<typeof us
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/suggest-recipes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fridgeItems: allInventory.map(f => f.name),
-          savedRecipes: recipes.map(r => ({ name: r.name, ingredients: r.ingredients }))
-        })
+      const data = await apiPost('/api/suggest-recipes', {
+        fridgeItems: allInventory.map(f => f.name),
+        savedRecipes: recipes.map(r => ({ name: r.name, ingredients: r.ingredients }))
       });
       
-      if (!response.ok) {
-        let errorMessage = 'Ошибка получения рекомендаций';
-        try {
-          const errData = await response.json();
-          if (errData.error) {
-            errorMessage = errData.error;
-          }
-        } catch (e) {
-          // ignore json parse error
-        }
-        throw new Error(errorMessage);
-      }
-      
-      const data = await response.json();
       setSuggestions(data.suggestions || []);
     } catch (err: any) {
-      setError(err.message || 'Что-то пошло не так');
+      setError(err.message || 'Не удалось получить рекомендации');
     } finally {
       setLoading(false);
     }

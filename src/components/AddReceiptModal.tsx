@@ -6,6 +6,7 @@ import { ReceiptPurchase, ReceiptItem, ShoppingItem, InventoryItem } from '../ty
 import { cn } from '../App';
 import { cleanProductName } from '../utils/geoFavorites';
 import { estimateItemMacros } from '../utils/macroEstimator';
+import { apiPost } from '../utils/api';
 
 interface AddReceiptModalProps {
   isOpen: boolean;
@@ -69,18 +70,7 @@ export default function AddReceiptModal({
     setHasParsed(false);
 
     try {
-      const res = await fetch('/api/parse-receipt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64 })
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Ошибка распознавания');
-      }
-
-      const data = await res.json();
+      const data = await apiPost('/api/parse-receipt', { imageBase64: base64 });
 
       setStoreName(data.storeName || 'Супермаркет');
       if (data.purchaseDate && !isNaN(Date.parse(data.purchaseDate))) {

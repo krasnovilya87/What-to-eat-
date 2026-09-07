@@ -1,5 +1,6 @@
 import { Macros } from '../types';
 import { parseQuantity, cleanIngredientName } from './ingredients';
+import { apiPost } from './api';
 
 export interface MacroCalculationResult {
   macros: Macros;
@@ -244,30 +245,23 @@ export async function calculateMacros(
   }
 
   try {
-    const res = await fetch('/api/calculate-macros', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dishName: dishName || 'Блюдо',
-        ingredients: cleanList,
-        portions
-      })
+    const data = await apiPost('/api/calculate-macros', {
+      dishName: dishName || 'Блюдо',
+      ingredients: cleanList,
+      portions
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.macros && (data.macros.calories > 0 || data.macros.protein > 0)) {
-        return {
-          macros: {
-            calories: Math.round(data.macros.calories || 0),
-            protein: parseFloat(Number(data.macros.protein || 0).toFixed(1)),
-            fat: parseFloat(Number(data.macros.fat || 0).toFixed(1)),
-            carbs: parseFloat(Number(data.macros.carbs || 0).toFixed(1))
-          },
-          totalWeight: data.totalWeight,
-          portions: data.portions || portions
-        };
-      }
+    if (data && data.macros && (data.macros.calories > 0 || data.macros.protein > 0)) {
+      return {
+        macros: {
+          calories: Math.round(data.macros.calories || 0),
+          protein: parseFloat(Number(data.macros.protein || 0).toFixed(1)),
+          fat: parseFloat(Number(data.macros.fat || 0).toFixed(1)),
+          carbs: parseFloat(Number(data.macros.carbs || 0).toFixed(1))
+        },
+        totalWeight: data.totalWeight,
+        portions: data.portions || portions
+      };
     }
   } catch (err) {
     console.warn('Серверный расчет КБЖУ недоступен, используем локальный расчет:', err);
