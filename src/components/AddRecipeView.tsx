@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 import EditRecipeModal from './EditRecipeModal';
 import { calculateMacros } from '../utils/macrosCalculator';
 import { apiPost } from '../utils/api';
+import { RECIPE_CATEGORIES } from '../types';
+import { getRecipeCategory } from '../utils/recipeCategories';
 
 export default function AddRecipeView({ state }: { state: ReturnType<typeof useAppState> }) {
   const { setRecipes } = state;
@@ -72,9 +74,14 @@ export default function AddRecipeView({ state }: { state: ReturnType<typeof useA
         }
       }
 
+      const recipeCategory = (data.category && (RECIPE_CATEGORIES as readonly string[]).includes(data.category))
+        ? data.category
+        : getRecipeCategory({ name: data.dishName, ingredients: data.ingredients });
+
       const newRecipe = {
         id: uuidv4(),
         name: data.dishName || 'Неизвестное блюдо',
+        category: recipeCategory,
         ingredients: data.ingredients || [],
         instructions: data.instructions || [],
         imageUrl: payload.imageBase64 || undefined,

@@ -84,11 +84,9 @@ export default function PurchaseChartModal({
   // Режим метрики: частота покупок / динамика цен / интервалы в днях
   const [metricView, setMetricView] = useState<ChartMetricView>('frequency');
   
-  // Поисковая строка и ввод цены
-  const [searchQuery, setSearchQuery] = useState('');
-  const [inputPrice, setInputPrice] = useState<string>('');
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const searchContainerRef = useRef<HTMLDivElement>(null);
+  // Состояние модального окна выбора продуктов за год
+  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
+  const [pickerSearchQuery, setPickerSearchQuery] = useState('');
 
   // Редактирование цены продукта прямо в карточке/чипе
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
@@ -127,30 +125,34 @@ export default function PurchaseChartModal({
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (isProductPickerOpen) {
+          setIsProductPickerOpen(false);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, isProductPickerOpen, onClose]);
 
-  // Закрытие списка подсказок при клике вне
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // Перечень всех продуктов за последний год из чеков, истории событий и текущих запасов
+  const yearProductsList = useMemo(() => {
+    const map = new Map<string, {
+      name: string;
+      lastPrice?: number;
+      count: number;
+      lastDate?: string;
+    }>();
 
-  // База всех известных названий продуктов и их последних зафиксированных цен
-  const allKnownProductsMap = useMemo<Map<string, KnownProductItem>>(() => {
-    const map = new Map<string, KnownProductItem>();
+    const now = Date.now();
+    const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
 
-    // 1. Из чеков (самый точный источник цен и дат)
+    // 1. Из чеков за последний год
     (purchases || []).forEach(receipt => {
+      const rTime = receipt.timestamp || (receipt.date ? new Date(receipt.date).getTime() : 0);
+      if (rTime && rTime < oneYearAgo) return;
+
       (receipt.items || []).forEach(item => {
         const key = cleanProductName(item.name);
         if (!key) return;
@@ -158,17 +160,35 @@ export default function PurchaseChartModal({
         if (existing) {
           existing.count += 1;
           if (item.price && !existing.lastPrice) existing.lastPrice = item.price;
+          if (receipt.date && !existing.lastDate) existing.lastDate = receipt.date;
         } else {
           map.set(key, {
             name: item.name.trim(),
             lastPrice: item.price || undefined,
-            count: 1
+            count: 1,
+            lastDate: receipt.date || undefined
           });
         }
       });
     });
 
-    // 2. Из холодильника, круп, специй, списка покупок
+    // 2. Из событий покупок (ProductPurchaseEvent) за год
+    (purchaseEvents || []).forEach(evt => {
+      if (evt.timestamp && evt.timestamp < oneYearAgo) return;
+      const key = cleanProductName(evt.itemName);
+      if (!key) return;
+      const existing = map.get(key);
+      if (existing) {
+        if (evt.type === 'bought') existing.count += 1;
+      } else {
+        map.set(key, {
+          name: evt.itemName.trim(),
+          count: evt.type === 'bought' ? 1 : 0
+        });
+      }
+    });
+
+    // 3. Из холодильника, круп, специй, списка покупок
     const addFromName = (name?: string) => {
       if (!name) return;
       const key = cleanProductName(name);
@@ -183,55 +203,36 @@ export default function PurchaseChartModal({
     (spices || []).forEach(i => addFromName(i.name));
     (shoppingList || []).forEach(i => addFromName(i.name));
 
-    return map;
-  }, [purchases, fridge, grains, spices, shoppingList]);
+    return Array.from(map.values()).sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name, 'ru');
+    });
+  }, [purchases, purchaseEvents, fridge, grains, spices, shoppingList]);
 
-  // Подсказки при поиске
-  const searchSuggestions = useMemo(() => {
-    const query = cleanProductName(searchQuery);
-    const all: KnownProductItem[] = Array.from(allKnownProductsMap.values());
-    if (!query) {
-      // Показываем популярные или первые 8
-      return all
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 8);
-    }
-    return all
-      .filter(item => cleanProductName(item.name).includes(query))
-      .slice(0, 8);
-  }, [searchQuery, allKnownProductsMap]);
+  // Фильтрация продуктов в перечне по поисковой строке
+  const filteredYearProducts = useMemo(() => {
+    const query = cleanProductName(pickerSearchQuery);
+    if (!query) return yearProductsList;
+    return yearProductsList.filter(item => cleanProductName(item.name).includes(query));
+  }, [yearProductsList, pickerSearchQuery]);
 
   // Добавление продукта на график
-  const handleAddProduct = (nameToAdd?: string, priceToAdd?: number) => {
-    const rawName = (nameToAdd || searchQuery).trim();
+  const handleAddProduct = (nameToAdd: string, priceToAdd?: number) => {
+    const rawName = nameToAdd.trim();
     if (!rawName) return;
 
-    // Проверяем, не добавлен ли уже
     const clean = cleanProductName(rawName);
     const existing = selectedProducts.find(p => cleanProductName(p.name) === clean);
     if (existing) {
-      // Если уже есть, обновим цену при наличии
-      if (priceToAdd !== undefined || inputPrice) {
-        const pNum = priceToAdd !== undefined ? priceToAdd : parseFloat(inputPrice);
-        if (!isNaN(pNum) && pNum >= 0) {
-          setSelectedProducts(prev => prev.map(p => p.id === existing.id ? { ...p, price: pNum } : p));
-        }
+      if (priceToAdd !== undefined) {
+        setSelectedProducts(prev => prev.map(p => p.id === existing.id ? { ...p, price: priceToAdd } : p));
       }
-      setSearchQuery('');
-      setInputPrice('');
-      setShowSuggestions(false);
       return;
     }
 
-    // Определяем цену: либо явно переданная, либо из поля ввода, либо последняя известная из чеков
-    let resolvedPrice: number | undefined = undefined;
-    if (priceToAdd !== undefined) {
-      resolvedPrice = priceToAdd;
-    } else if (inputPrice.trim()) {
-      const parsed = parseFloat(inputPrice);
-      if (!isNaN(parsed) && parsed >= 0) resolvedPrice = parsed;
-    } else {
-      const known = allKnownProductsMap.get(clean);
+    let resolvedPrice: number | undefined = priceToAdd;
+    if (resolvedPrice === undefined) {
+      const known = yearProductsList.find(p => cleanProductName(p.name) === clean);
       if (known && known.lastPrice) {
         resolvedPrice = known.lastPrice;
       }
@@ -246,17 +247,16 @@ export default function PurchaseChartModal({
     };
 
     setSelectedProducts(prev => [...prev, newProduct]);
-    setSearchQuery('');
-    setInputPrice('');
-    setShowSuggestions(false);
   };
 
-  const handleSelectSuggestion = (item: { name: string; lastPrice?: number }) => {
-    setSearchQuery(item.name);
-    if (item.lastPrice) {
-      setInputPrice(String(item.lastPrice));
+  const handleToggleYearProduct = (rawName: string, price?: number) => {
+    const clean = cleanProductName(rawName);
+    const existing = selectedProducts.find(p => cleanProductName(p.name) === clean);
+    if (existing) {
+      handleRemoveProduct(existing.id);
+    } else {
+      handleAddProduct(rawName, price);
     }
-    handleAddProduct(item.name, item.lastPrice);
   };
 
   const handleRemoveProduct = (id: string) => {
@@ -526,19 +526,18 @@ export default function PurchaseChartModal({
         exit={{ opacity: 0, scale: 0.96, y: 10 }}
         transition={{ duration: 0.2 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl border border-stone-200 overflow-y-auto no-scrollbar max-h-[90vh] my-auto"
+        className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl overflow-y-auto no-scrollbar max-h-[90vh] my-auto"
       >
         {/* Шапка модального окна */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-stone-200/80 bg-stone-50/70">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 bg-stone-50/70">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-900">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 flex items-center justify-center text-amber-900">
               <TrendingUp size={20} className="text-amber-800" />
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold text-stone-900 leading-tight">
                 График покупок
               </h3>
-              
             </div>
           </div>
           <button
@@ -554,175 +553,99 @@ export default function PurchaseChartModal({
         {/* Контент */}
         <div className="p-4 sm:p-6 space-y-6">
           
-          {/* 1. Блок добавления продукта и цены */}
-          <div className="bg-stone-50 rounded-2xl p-4 border border-stone-200/80 space-y-3">
-            <label className="text-xs font-bold text-stone-700 uppercase tracking-wider block">
-              Добавить продукт на график
-            </label>
-
-            <div ref={searchContainerRef} className="relative">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                {/* Поле поиска продукта */}
-                <div className="relative flex-1">
-                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setShowSuggestions(true);
-                    }}
-                    onFocus={() => setShowSuggestions(true)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddProduct();
-                      }
-                    }}
-                    placeholder="Наименование продукта (Молоко, Филе...)"
-                    className="w-full pl-9 pr-4 py-2.5 bg-white border border-stone-200 rounded-xl text-xs sm:text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900/10 focus:border-stone-900"
-                  />
-                </div>
-
-                {/* Поле цены */}
-                <div className="relative w-full sm:w-36">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-400 pointer-events-none">
-                    ₽
-                  </span>
-                  <input
-                    type="number"
-                    value={inputPrice}
-                    onChange={(e) => setInputPrice(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddProduct();
-                      }
-                    }}
-                    placeholder="Цена"
-                    min="0"
-                    step="1"
-                    className="w-full pl-8 pr-3 py-2.5 bg-white border border-stone-200 rounded-xl text-xs sm:text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900/10 focus:border-stone-900"
-                  />
-                </div>
-
-                {/* Кнопка Добавить */}
-                <button
-                  type="button"
-                  onClick={() => handleAddProduct()}
-                  className="px-4 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 shadow-xs active:scale-98"
-                >
-                  <Plus size={16} />
-                  <span>Добавить</span>
-                </button>
-              </div>
-
-              {/* Выпадающие подсказки при вводе */}
-              {showSuggestions && searchSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-white rounded-2xl shadow-xl border border-stone-200 overflow-hidden z-20 max-h-56 overflow-y-auto no-scrollbar">
-                  <div className="p-2 border-b border-stone-100 text-[11px] font-semibold text-stone-400 uppercase tracking-wider">
-                    Быстрый выбор из истории и запасов
-                  </div>
-                  {searchSuggestions.map((item, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleSelectSuggestion(item)}
-                      className="w-full px-3.5 py-2.5 text-left hover:bg-stone-50 flex items-center justify-between transition-colors border-b border-stone-50 last:border-0 cursor-pointer"
-                    >
-                      <span className="text-xs sm:text-sm font-medium text-stone-900">
-                        {item.name}
-                      </span>
-                      {item.lastPrice !== undefined && item.lastPrice > 0 && (
-                        <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60">
-                          {item.lastPrice} ₽
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+          {/* 1. Блок выбранных продуктов для графика */}
+          <div className="bg-stone-50 rounded-2xl p-4 space-y-3">
+            <div className="text-xs font-semibold text-stone-600">
+              Выбрано для графика ({selectedProducts.length}):
             </div>
 
-            {/* Выбранные продукты (чипы с цветом, ценой и кнопкой удаления) */}
-            <div>
-              <div className="text-[11px] font-medium text-stone-500 mb-2">
-                Выбрано для графика ({selectedProducts.length}):
+            {selectedProducts.length === 0 ? (
+              <div className="text-xs text-stone-400 italic py-1">
+                Нет выбранных продуктов. Нажмите «Добавить», чтобы выбрать из истории покупок.
               </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selectedProducts.map((prod) => (
+                  <div
+                    key={prod.id}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl shadow-xs text-xs"
+                  >
+                    <span
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ backgroundColor: prod.color }}
+                    />
+                    <span className="font-medium text-stone-900 max-w-[140px] sm:max-w-[200px] truncate">
+                      {prod.name}
+                    </span>
 
-              {selectedProducts.length === 0 ? (
-                <div className="text-xs text-stone-400 italic py-1">
-                  Нет выбранных продуктов. Введите наименование выше или выберите из подсказок.
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {selectedProducts.map((prod) => (
-                    <div
-                      key={prod.id}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-stone-200 rounded-xl shadow-2xs text-xs"
-                    >
-                      <span
-                        className="w-3 h-3 rounded-full shrink-0"
-                        style={{ backgroundColor: prod.color }}
-                      />
-                      <span className="font-medium text-stone-900 max-w-[140px] sm:max-w-[200px] truncate">
-                        {prod.name}
-                      </span>
-
-                      {/* Инлайн редактирование цены продукта */}
-                      {editingPriceId === prod.id ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number"
-                            value={editPriceValue}
-                            onChange={(e) => setEditPriceValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleSavePriceEdit(prod.id);
-                              if (e.key === 'Escape') setEditingPriceId(null);
-                            }}
-                            autoFocus
-                            className="w-16 px-1.5 py-0.5 text-xs border border-stone-300 rounded focus:outline-none focus:border-stone-900"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleSavePriceEdit(prod.id)}
-                            className="text-emerald-700 hover:text-emerald-800 p-0.5 cursor-pointer"
-                          >
-                            <Check size={13} />
-                          </button>
-                        </div>
-                      ) : (
+                    {/* Инлайн редактирование цены продукта */}
+                    {editingPriceId === prod.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          value={editPriceValue}
+                          onChange={(e) => setEditPriceValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSavePriceEdit(prod.id);
+                            if (e.key === 'Escape') setEditingPriceId(null);
+                          }}
+                          autoFocus
+                          className="w-16 px-1.5 py-0.5 text-xs bg-stone-100 rounded focus:outline-none"
+                        />
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingPriceId(prod.id);
-                            setEditPriceValue(prod.price ? String(prod.price) : '');
-                          }}
-                          className="text-[11px] font-bold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors"
-                          title="Нажмите, чтобы изменить указанную цену"
+                          onClick={() => handleSavePriceEdit(prod.id)}
+                          className="text-emerald-700 hover:text-emerald-800 p-0.5 cursor-pointer"
                         >
-                          <span>{prod.price ? `${prod.price} ₽` : 'Указать цену'}</span>
-                          <Edit3 size={10} className="text-stone-400" />
+                          <Check size={13} />
                         </button>
-                      )}
-
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => handleRemoveProduct(prod.id)}
-                        className="text-stone-400 hover:text-stone-700 p-0.5 cursor-pointer transition-colors"
-                        title="Удалить из графика"
+                        onClick={() => {
+                          setEditingPriceId(prod.id);
+                          setEditPriceValue(prod.price ? String(prod.price) : '');
+                        }}
+                        className="text-[11px] font-bold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Нажмите, чтобы изменить указанную цену"
                       >
-                        <X size={13} />
+                        <span>{prod.price ? `${prod.price} ₽` : 'Указать цену'}</span>
+                        <Edit3 size={10} className="text-stone-400" />
                       </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveProduct(prod.id)}
+                      className="text-stone-400 hover:text-stone-700 p-0.5 cursor-pointer transition-colors"
+                      title="Удалить из графика"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Кнопка Добавить размещена под выбрано для графика */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsProductPickerOpen(true);
+                  setPickerSearchQuery('');
+                }}
+                className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0 shadow-sm active:scale-95"
+              >
+                <Plus size={16} />
+                <span>Добавить</span>
+              </button>
             </div>
           </div>
 
           {/* 2. Панель управления графиком (Интервалы и Режимы отображения) */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-stone-100">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2">
             {/* Переключение интервала времени: Дни, Недели, Месяцы, Кварталы, Год */}
             <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl w-full sm:w-auto overflow-x-auto no-scrollbar">
               {(
@@ -788,13 +711,13 @@ export default function PurchaseChartModal({
           </div>
 
           {/* 3. Сам интерактивный график Recharts */}
-          <div className="bg-stone-50/50 rounded-2xl p-4 border border-stone-200/80">
+          <div className="bg-stone-50/50 rounded-2xl p-4">
             {selectedProducts.length === 0 ? (
               <div className="h-64 flex flex-col items-center justify-center text-center p-6 text-stone-400">
                 <LineChartIcon size={36} className="mb-2 stroke-1 text-stone-300" />
                 <p className="text-sm font-medium text-stone-600">График пуст</p>
                 <p className="text-xs text-stone-400 mt-1">
-                  Добавьте один или несколько продуктов через поисковую строку выше
+                  Нажмите «Добавить» выше, чтобы выбрать продукты из истории покупок
                 </p>
               </div>
             ) : (
@@ -820,8 +743,8 @@ export default function PurchaseChartModal({
                       content={({ active, payload, label }) => {
                         if (!active || !payload || payload.length === 0) return null;
                         return (
-                          <div className="bg-stone-900 text-white text-xs rounded-xl p-3 shadow-xl border border-stone-800 space-y-1.5 min-w-[170px]">
-                            <div className="font-bold text-stone-300 border-b border-stone-800 pb-1">
+                          <div className="bg-stone-900 text-white text-xs rounded-xl p-3 shadow-xl space-y-1.5 min-w-[170px]">
+                            <div className="font-bold text-stone-300 pb-1">
                               {label}
                             </div>
                             {payload.map((item, idx) => {
@@ -898,7 +821,7 @@ export default function PurchaseChartModal({
                 {productStats.map(({ product, totalCount, avgIntervalDays, daysSinceLast, lastBoughtDate, avgActualPrice, nextExpectedDays }) => (
                   <div
                     key={product.id}
-                    className="p-3.5 bg-white rounded-2xl border border-stone-200 shadow-2xs flex flex-col justify-between gap-3"
+                    className="p-3.5 bg-white rounded-2xl shadow-2xs flex flex-col justify-between gap-3"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
@@ -921,7 +844,7 @@ export default function PurchaseChartModal({
                     </div>
 
                     {/* Метрики интервалов */}
-                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-100 text-[11px]">
+                    <div className="grid grid-cols-3 gap-2 pt-2 text-[11px]">
                       <div>
                         <span className="text-stone-400 block text-[10px]">Интервал</span>
                         <span className="font-bold text-stone-800">
@@ -963,6 +886,160 @@ export default function PurchaseChartModal({
 
         </div>
       </motion.div>
+
+      {/* Модальное окно выбора продуктов за год */}
+      <AnimatePresence>
+        {isProductPickerOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+            onClick={() => setIsProductPickerOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[85vh] flex flex-col my-auto"
+            >
+              {/* Шапка перечня продуктов */}
+              <div className="flex items-center justify-between px-5 py-4 bg-stone-50/80">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-base font-bold text-stone-900">
+                    Продукты за год
+                  </h4>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-stone-200/70 text-stone-700">
+                    {yearProductsList.length}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsProductPickerOpen(false)}
+                  className="w-8 h-8 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Поисковая строка в перечне продуктов */}
+              <div className="p-4 bg-white">
+                <div className="relative">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={pickerSearchQuery}
+                    onChange={(e) => setPickerSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && pickerSearchQuery.trim()) {
+                        e.preventDefault();
+                        handleToggleYearProduct(pickerSearchQuery.trim());
+                        setPickerSearchQuery('');
+                      }
+                    }}
+                    autoFocus
+                    placeholder="Поиск продуктов..."
+                    className="w-full pl-9 pr-4 py-2.5 bg-stone-100 rounded-xl text-xs sm:text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900/10"
+                  />
+                </div>
+              </div>
+
+              {/* Список продуктов */}
+              <div className="overflow-y-auto no-scrollbar flex-1 px-4 pb-4 space-y-1.5">
+                {/* Если пользователь ввел новый продукт, которого нет в перечне */}
+                {pickerSearchQuery.trim() && !yearProductsList.some(p => cleanProductName(p.name) === cleanProductName(pickerSearchQuery)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleToggleYearProduct(pickerSearchQuery.trim());
+                      setPickerSearchQuery('');
+                    }}
+                    className="w-full p-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 flex items-center justify-between transition-colors cursor-pointer text-left shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Plus size={16} className="text-emerald-700" />
+                      <span className="text-xs sm:text-sm font-semibold">
+                        Добавить «{pickerSearchQuery.trim()}»
+                      </span>
+                    </div>
+                  </button>
+                )}
+
+                {filteredYearProducts.length === 0 && !pickerSearchQuery.trim() ? (
+                  <div className="text-center py-10 text-stone-400 text-xs">
+                    История покупок за последний год пуста
+                  </div>
+                ) : filteredYearProducts.length === 0 ? (
+                  <div className="text-center py-8 text-stone-400 text-xs">
+                    Ничего не найдено
+                  </div>
+                ) : (
+                  filteredYearProducts.map((item, idx) => {
+                    const isSelected = selectedProducts.some(
+                      (p) => cleanProductName(p.name) === cleanProductName(item.name)
+                    );
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleToggleYearProduct(item.name, item.lastPrice)}
+                        className={`w-full p-3 rounded-2xl flex items-center justify-between transition-all cursor-pointer text-left shadow-2xs ${
+                          isSelected
+                            ? 'bg-emerald-50 text-emerald-950'
+                            : 'bg-stone-50 hover:bg-stone-100 text-stone-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 pr-2">
+                          <div
+                            className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                              isSelected
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-stone-200/70 text-stone-400'
+                            }`}
+                          >
+                            {isSelected ? <Check size={14} strokeWidth={2.5} /> : <Plus size={14} />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs sm:text-sm font-semibold truncate">
+                              {item.name}
+                            </p>
+                            {item.count > 1 && (
+                              <p className="text-[11px] text-stone-400">
+                                Куплено {item.count} раз
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {item.lastPrice !== undefined && item.lastPrice > 0 && (
+                          <span className="text-xs font-bold text-stone-700 bg-white px-2 py-1 rounded-lg shadow-2xs shrink-0">
+                            {item.lastPrice} ₽
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Нижняя панель с кнопкой Готово */}
+              <div className="p-4 bg-stone-50 flex items-center justify-between">
+                <span className="text-xs font-medium text-stone-500">
+                  Выбрано для графика: {selectedProducts.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsProductPickerOpen(false)}
+                  className="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm active:scale-95"
+                >
+                  Готово
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -8,8 +8,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { cn } from '../App';
 import { checkIngredientStatus, calculateNeededIngredients, parseQuantity, scaleIngredient, cleanIngredientName } from '../utils/ingredients';
 import { mergeShoppingItems } from '../utils/supermarket';
-import { Recipe } from '../types';
+import { Recipe, RecipeCategory, RECIPE_CATEGORIES } from '../types';
 import { calculateMacros } from '../utils/macrosCalculator';
+import { getRecipeCategory } from '../utils/recipeCategories';
 
 export default function RecipesView({ state }: { state: ReturnType<typeof useAppState> }) {
   const navigate = useNavigate();
@@ -31,6 +32,12 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [calculatingRecipeId, setCalculatingRecipeId] = useState<string | null>(null);
   const [macrosViewMode, setMacrosViewMode] = useState<'per100g' | 'perPortion'>('per100g');
+  const [selectedCategory, setSelectedCategory] = useState<RecipeCategory | 'all'>('all');
+
+  const filteredRecipes = React.useMemo(() => {
+    if (selectedCategory === 'all') return recipes;
+    return recipes.filter(r => getRecipeCategory(r) === selectedCategory);
+  }, [recipes, selectedCategory]);
 
   // Управление жестами: долгое нажатие (вибрация как на iOS) и свайп снизу вверх
   const longPressTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -350,27 +357,67 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
       onTouchMove={handleContainerTouchMove}
       onTouchEnd={handleContainerTouchEnd}
     >
-      {/* Header with Title and "Добавить рецепт" button */}
-      <div className="flex items-center justify-between px-2 gap-2">
-        <h1 className="text-2xl font-bold tracking-tight text-stone-800">Мои рецепты</h1>
-        
+      {/* Большая кнопка "Добавить рецепт" */}
+      <div className="px-2">
         <button
+          id="btn-add-recipe"
+          type="button"
           onClick={() => navigate('/add')}
-          className="px-3.5 py-2 rounded-2xl font-semibold text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 bg-stone-900 hover:bg-stone-800 text-white cursor-pointer"
+          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base py-4 px-6 rounded-2xl sm:rounded-[2rem] shadow-md hover:shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2.5 cursor-pointer"
         >
-          <Plus size={16} strokeWidth={2.5} />
+          <Plus size={22} strokeWidth={2.5} className="shrink-0" />
           <span>Добавить рецепт</span>
         </button>
       </div>
+
+      {/* Категории рецептов */}
+      {recipes.length > 0 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar px-2 py-0.5 select-none">
+          <button
+            type="button"
+            onClick={() => setSelectedCategory('all')}
+            className={cn(
+              "px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shadow-2xs",
+              selectedCategory === 'all'
+                ? "bg-stone-900 text-white"
+                : "bg-white text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+            )}
+          >
+            Все
+          </button>
+          {RECIPE_CATEGORIES.map(cat => {
+            const isSelected = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shadow-2xs",
+                  isSelected
+                    ? "bg-stone-900 text-white"
+                    : "bg-white text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+                )}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {recipes.length === 0 ? (
         <div className="text-center text-stone-500 py-10 bg-white rounded-[2rem] shadow-sm mx-2">
           <p>У вас пока нет сохраненных рецептов.</p>
           <p className="text-sm mt-2 text-stone-400">Нажмите «Добавить рецепт» выше, чтобы добавить блюдо по фото, ссылке или вручную.</p>
         </div>
+      ) : filteredRecipes.length === 0 ? (
+        <div className="text-center text-stone-500 py-10 bg-white rounded-2xl md:rounded-[2rem] shadow-sm mx-2">
+          <p className="text-sm font-medium text-stone-700">В категории «{selectedCategory}» пока нет рецептов</p>
+        </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 px-2">
-          {recipes.map((recipe, index) => (
+          {filteredRecipes.map((recipe, index) => (
             <motion.div 
               key={recipe.id} 
               drag={isSelectingCookToday ? false : "x"}
@@ -424,6 +471,11 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
               )}
               <div className="p-3 md:p-6 flex flex-col items-start justify-between flex-grow">
                 <div className="w-full">
+                  <div className="mb-1">
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-700">
+                      {getRecipeCategory(recipe)}
+                    </span>
+                  </div>
                   <h3 className="font-bold text-base md:text-xl text-stone-800 leading-tight line-clamp-2">{recipe.name}</h3>
                   <p className="text-xs md:text-sm text-stone-500 mt-1">
                       {recipe.ingredients.length} ингр. {recipe.macros && recipe.macros.calories > 0 && `• ${recipe.macros.calories} ккал`}
@@ -440,7 +492,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
 
       {/* Модальное окно просмотра рецепта */}
       {expandedId && (
-        <div className="fixed inset-0 bg-stone-900/50 z-40 flex flex-col justify-end sm:items-center sm:justify-center p-0 sm:p-4" onClick={() => setExpandedId(null)}>
+        <div className="fixed inset-0 bg-stone-900/50 z-[60] flex flex-col justify-end sm:items-center sm:justify-center p-0 sm:p-4" onClick={() => setExpandedId(null)}>
           <motion.div 
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
@@ -489,6 +541,11 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                     <div className="p-6 flex flex-col gap-6">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1">
+                          <div className="mb-2">
+                            <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-stone-100 text-stone-700">
+                              {getRecipeCategory(recipe)}
+                            </span>
+                          </div>
                           <h2 className="font-bold text-2xl text-stone-800 leading-tight">{recipe.name}</h2>
                           <div className="flex items-center gap-2 mt-2">
                             <p className="text-sm font-bold text-emerald-600">
@@ -502,7 +559,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                             setReturnToRecipeId(recipe.id);
                             setExpandedId(null);
                           }}
-                          className="shrink-0 px-3.5 py-2 rounded-xl text-stone-700 bg-stone-100 hover:bg-stone-200 transition-colors flex items-center gap-1.5 text-xs font-bold border border-stone-200/60 shadow-xs"
+                          className="shrink-0 px-3.5 py-2 rounded-xl text-stone-700 bg-stone-100 hover:bg-stone-200 transition-colors flex items-center gap-1.5 text-xs font-bold shadow-xs cursor-pointer"
                           title="Редактировать рецепт"
                         >
                           <Edit2 size={15} className="text-stone-600" />
@@ -600,7 +657,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                           );
                         })()
                       ) : (
-                        <div className="flex items-center justify-between p-3.5 bg-stone-50 rounded-2xl border border-stone-100">
+                        <div className="flex items-center justify-between p-3.5 bg-stone-50 rounded-2xl">
                           <div>
                             <p className="text-xs font-bold text-stone-700">КБЖУ не указаны</p>
                             <p className="text-[11px] text-stone-400">Рассчитать автоматически по ингредиентам</p>
@@ -668,14 +725,14 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                   </div>
                   
                   {/* Кнопки внизу карточки: "Готовлю сегодня", "Редактировать", "Удалить" */}
-                  <div className="p-4 border-t border-stone-100 flex flex-col gap-2 bg-white">
+                  <div className="p-4 pb-8 sm:pb-4 flex flex-col gap-2 bg-white shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.03)]">
                     <button 
                       onClick={() => {
                         setCookingRecipe(recipe);
                         setPortionsInput(recipe.portions || recipe.basePortions || 1);
                         setExpandedId(null);
                       }}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm"
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm cursor-pointer active:scale-98"
                     >
                       <ChefHat size={18} /> Готовлю сегодня
                     </button>
@@ -687,7 +744,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                           setReturnToRecipeId(recipe.id);
                           setExpandedId(null);
                         }}
-                        className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                        className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
                       >
                         <Edit2 size={16} /> Редактировать
                       </button>
@@ -697,7 +754,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                           promptRemove(e, recipe.id);
                           setExpandedId(null);
                         }}
-                        className="flex-1 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                        className="flex-1 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
                       >
                         <Trash2 size={16} /> Удалить
                       </button>
@@ -712,7 +769,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
 
       {/* Диалог "Сколько порций?" */}
       {cookingRecipe && (
-        <div className="fixed inset-0 bg-stone-900/50 z-50 flex items-center justify-center p-4" onClick={handleCancelCooking}>
+        <div className="fixed inset-0 bg-stone-900/50 z-[70] flex items-center justify-center p-4" onClick={handleCancelCooking}>
           <motion.div 
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -727,7 +784,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
               </div>
               <button 
                 onClick={handleCancelCooking}
-                className="text-stone-400 hover:text-stone-600 p-1 rounded-full transition-colors"
+                className="text-stone-400 hover:text-stone-600 p-1 rounded-full transition-colors cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -741,7 +798,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
               <button 
                 onClick={() => setPortionsInput(p => Math.max(1, p - 1))}
                 disabled={portionsInput <= 1}
-                className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-stone-700 shadow-sm disabled:opacity-30 active:scale-95 transition-all text-xl font-bold"
+                className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-stone-700 shadow-sm disabled:opacity-30 active:scale-95 transition-all text-xl font-bold cursor-pointer"
               >
                 <Minus size={18} />
               </button>
@@ -764,7 +821,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
 
               <button 
                 onClick={() => setPortionsInput(p => p + 1)}
-                className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-stone-700 shadow-sm active:scale-95 transition-all text-xl font-bold"
+                className="w-12 h-12 rounded-xl bg-white flex items-center justify-center text-stone-700 shadow-sm active:scale-95 transition-all text-xl font-bold cursor-pointer"
               >
                 <Plus size={18} />
               </button>
@@ -786,7 +843,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
             <div className="flex gap-2">
               <button 
                 onClick={handleCancelCooking}
-                className="flex-1 py-3 text-stone-600 font-medium bg-stone-100 rounded-xl hover:bg-stone-200 transition-colors text-sm"
+                className="flex-1 py-3 text-stone-600 font-medium bg-stone-100 rounded-xl hover:bg-stone-200 transition-colors text-sm cursor-pointer"
               >
                 Отмена
               </button>
@@ -796,7 +853,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                   e.preventDefault();
                   handleConfirmCookToday();
                 }}
-                className="flex-1 py-3 text-white font-medium bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors shadow-sm text-sm flex items-center justify-center gap-1.5"
+                className="flex-1 py-3 text-white font-medium bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors shadow-sm text-sm flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Check size={18} /> Окей
               </button>
@@ -811,7 +868,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 50, opacity: 0 }}
-          className="fixed bottom-20 left-4 right-4 max-w-md mx-auto z-50 bg-stone-900 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-3 border border-stone-800"
+          className="fixed bottom-24 left-4 right-4 max-w-md mx-auto z-[70] bg-stone-900 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-3"
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
@@ -824,7 +881,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
               setIsSelectingCookToday(false);
               navigate('/shopping');
             }}
-            className="text-xs font-bold text-emerald-400 hover:text-emerald-300 px-2.5 py-1.5 rounded-lg bg-white/10 shrink-0 whitespace-nowrap"
+            className="text-xs font-bold text-emerald-400 hover:text-emerald-300 px-2.5 py-1.5 rounded-lg bg-white/10 shrink-0 whitespace-nowrap cursor-pointer"
           >
             В покупки →
           </button>
@@ -846,7 +903,7 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
       )}
       
       {recipeToDelete && (
-        <div className="fixed inset-0 bg-stone-900/50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-stone-900/50 z-[70] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm shadow-xl">
             <h3 className="text-xl font-bold text-stone-900 mb-2">Удалить рецепт?</h3>
             <p className="text-stone-500 mb-6">Вы уверены, что хотите удалить этот рецепт? Это действие нельзя отменить.</p>

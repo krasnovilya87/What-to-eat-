@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Camera, Plus, Trash2, X, Sparkles, Loader2, Image as ImageIcon, Check } from 'lucide-react';
+import { Camera, Plus, Trash2, X, Check, Loader2, Image as ImageIcon } from 'lucide-react';
 import { InventoryItem } from '../types';
 import { apiPost } from '../utils/api';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,6 +10,7 @@ interface RecognizedItem {
   quantity: string;
   section: 'fridge' | 'grains' | 'spices';
   selected: boolean;
+  photoIndex?: number;
 }
 
 interface ScanFridgeModalProps {
@@ -23,6 +24,10 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recognizedItems, setRecognizedItems] = useState<RecognizedItem[] | null>(null);
+  const [unrecognizedPhotos, setUnrecognizedPhotos] = useState<number[]>([]);
+  const [manualDrafts, setManualDrafts] = useState<
+    Record<number, { name: string; quantity: string; section: 'fridge' | 'grains' | 'spices' }>
+  >({});
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -91,7 +96,6 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
       setImages((prev) => [...prev, ...newImages]);
     }
 
-    // Сброс значения input, чтобы можно было выбрать тот же файл повторно
     if (e.target) {
       e.target.value = '';
     }
@@ -109,15 +113,11 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
 
     try {
       const data = await apiPost<{
-        items: Array<{ name: string; quantity?: string; section: 'fridge' | 'grains' | 'spices' }>;
+        items: Array<{ name: string; quantity?: string; section: 'fridge' | 'grains' | 'spices'; imageIndex?: number }>;
+        unrecognizedImageIndexes?: number[];
       }>('/api/scan-fridge-photos', { images });
 
-      if (!data || !data.items || data.items.length === 0) {
-        setError('ИИ не удалось различить продукты на фото. Попробуйте сделать более чёткий снимок.');
-        return;
-      }
-
-      const formatted: RecognizedItem[] = data.items.map((it) => {
+      const formatted: RecognizedItem[] = (data?.items || []).map((it) => {
         const validSection: 'fridge' | 'grains' | 'spices' =
           it.section === 'grains' || it.section === 'spices' ? it.section : 'fridge';
         return {
@@ -125,20 +125,66 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
           name: it.name.trim(),
           quantity: (it.quantity || '').trim(),
           section: validSection,
-          selected: true
+          selected: true,
+          photoIndex: typeof it.imageIndex === 'number' ? it.imageIndex : undefined
         };
       });
 
       setRecognizedItems(formatted);
+
+      // Определяем нераспознанные фотографии
+      const unrecSet = new Set<number>(data?.unrecognizedImageIndexes || []);
+      images.forEach((_, idx) => {
+        const hasItem = formatted.some((item) => item.photoIndex === idx);
+        if (!hasItem) {
+          unrecSet.add(idx);
+        }
+      });
+
+      setUnrecognizedPhotos(Array.from(unrecSet).sort((a, b) => a - b));
     } catch (err: any) {
       console.error('Scan error:', err);
-      setError(
-        err.message ||
-          'Не удалось связаться с сервером ИИ. Убедитесь, что сервер запущен, или попробуйте ещё раз.'
-      );
+      // Если автоматическое распознавание не сработало, даем пользователю ввести вручную
+      setRecognizedItems([]);
+      setUnrecognizedPhotos(images.map((_, idx) => idx));
+      setError('Не удалось распознать продукты автоматически. Введите их вручную.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const getDraft = (photoIdx: number) => {
+    return manualDrafts[photoIdx] || { name: '', quantity: '', section: 'fridge' };
+  };
+
+  const updateDraft = (photoIdx: number, field: 'name' | 'quantity' | 'section', val: string) => {
+    setManualDrafts((prev) => ({
+      ...prev,
+      [photoIdx]: {
+        ...getDraft(photoIdx),
+        [field]: val
+      }
+    }));
+  };
+
+  const handleAddManualItem = (photoIdx: number) => {
+    const draft = getDraft(photoIdx);
+    if (!draft.name.trim()) return;
+
+    const newItem: RecognizedItem = {
+      id: uuidv4(),
+      name: draft.name.trim(),
+      quantity: draft.quantity.trim(),
+      section: draft.section,
+      selected: true,
+      photoIndex: photoIdx
+    };
+
+    setRecognizedItems((prev) => (prev ? [...prev, newItem] : [newItem]));
+    setManualDrafts((prev) => ({
+      ...prev,
+      [photoIdx]: { name: '', quantity: '', section: draft.section }
+    }));
   };
 
   const handleToggleSelect = (id: string) => {
@@ -158,9 +204,24 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
   };
 
   const handleApplyItems = () => {
-    if (!recognizedItems) return;
+    // Автоматически учитываем заполненные черновики под нераспознанными фото
+    const additionalItems: RecognizedItem[] = [];
+    unrecognizedPhotos.forEach((photoIdx) => {
+      const draft = getDraft(photoIdx);
+      if (draft.name.trim()) {
+        additionalItems.push({
+          id: uuidv4(),
+          name: draft.name.trim(),
+          quantity: draft.quantity.trim(),
+          section: draft.section,
+          selected: true,
+          photoIndex: photoIdx
+        });
+      }
+    });
 
-    const selected = recognizedItems.filter((i) => i.selected && i.name.trim().length > 0);
+    const allItems = [...(recognizedItems || []), ...additionalItems];
+    const selected = allItems.filter((i) => i.selected && i.name.trim().length > 0);
     if (selected.length === 0) {
       onClose();
       return;
@@ -198,6 +259,14 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
   const handleReset = () => {
     setImages([]);
     setRecognizedItems(null);
+    setUnrecognizedPhotos([]);
+    setManualDrafts({});
+    setError(null);
+  };
+
+  const handleBackToPhotos = () => {
+    setRecognizedItems(null);
+    setUnrecognizedPhotos([]);
     setError(null);
   };
 
@@ -212,7 +281,7 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
               <Camera size={20} />
             </div>
             <h2 className="text-base font-bold text-stone-900 leading-tight">
-              {recognizedItems ? 'Найденные продукты' : 'Добавить фото'}
+              {recognizedItems !== null ? 'Найденные продукты' : 'Добавить фото'}
             </h2>
           </div>
           <button
@@ -252,7 +321,7 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
           )}
 
           {/* Режим 1: Съёмка / добавление фото */}
-          {!recognizedItems && (
+          {recognizedItems === null && (
             <div className="space-y-4">
               {images.length === 0 ? (
                 <div className="py-10 px-4 bg-stone-50 rounded-3xl flex flex-col items-center justify-center text-center shadow-inner">
@@ -280,7 +349,7 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-stone-700">
                       Фото: {images.length}
@@ -313,7 +382,7 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
                       </div>
                     ))}
 
-                    {/* Кнопка добавления ещё одного фото */}
+                    {/* Кнопка добавления ещё одного фото через камеру */}
                     <button
                       type="button"
                       onClick={() => cameraInputRef.current?.click()}
@@ -327,7 +396,7 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
                     </button>
                   </div>
 
-                  {/* Вторая кнопка добавления из галереи */}
+                  {/* Кнопка добавления ещё из галереи */}
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -338,97 +407,209 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
                       <span>Добавить из галереи</span>
                     </button>
                   </div>
+
+                  {/* Кнопка "Окей" прямо под превью */}
+                  <button
+                    type="button"
+                    onClick={handleScan}
+                    disabled={loading}
+                    className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-2xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] cursor-pointer"
+                  >
+                    <Check size={18} />
+                    <span>Окей</span>
+                  </button>
                 </div>
               )}
             </div>
           )}
 
-          {/* Режим 2: Результаты распознавания */}
-          {recognizedItems && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-xs font-bold text-stone-800">
-                  Выбрано: {recognizedItems.filter((i) => i.selected).length} из {recognizedItems.length}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  className="text-xs font-semibold text-stone-500 hover:text-stone-800 cursor-pointer"
-                >
-                  Снять заново
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                {recognizedItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`p-3 rounded-2xl transition-all shadow-xs flex items-center gap-2.5 ${
-                      item.selected ? 'bg-white' : 'bg-stone-100/70 opacity-60'
-                    }`}
-                  >
-                    {/* Чекбокс */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleSelect(item.id)}
-                      className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
-                        item.selected
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-stone-200 text-transparent hover:bg-stone-300'
-                      }`}
-                    >
-                      <Check size={14} strokeWidth={3} />
-                    </button>
-
-                    {/* Поле названия */}
-                    <input
-                      type="text"
-                      value={item.name}
-                      onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
-                      placeholder="Название продукта"
-                      className="flex-1 min-w-0 bg-transparent text-xs font-semibold text-stone-900 focus:outline-none placeholder-stone-400"
-                    />
-
-                    {/* Поле количества */}
-                    <input
-                      type="text"
-                      value={item.quantity}
-                      onChange={(e) => handleUpdateItem(item.id, 'quantity', e.target.value)}
-                      placeholder="Кол-во"
-                      className="w-16 bg-stone-100 rounded-lg px-2 py-1 text-[11px] text-stone-700 text-right focus:outline-none focus:bg-white placeholder-stone-400 shrink-0"
-                    />
-
-                    {/* Выбор секции (Холодильник / Крупы / Приправы) */}
-                    <select
-                      value={item.section}
-                      onChange={(e) => handleUpdateItem(item.id, 'section', e.target.value)}
-                      className="bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-lg px-2 py-1 text-[11px] font-medium focus:outline-none shrink-0 cursor-pointer"
-                      title="Куда сохранить продукт"
-                    >
-                      <option value="fridge">🧊 Холод.</option>
-                      <option value="grains">🌾 Крупы</option>
-                      <option value="spices">🥫 Соусы</option>
-                    </select>
-
-                    {/* Удалить из списка */}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRecognizedItem(item.id)}
-                      className="text-stone-400 hover:text-red-500 p-1 rounded-md transition-colors cursor-pointer shrink-0"
-                      title="Удалить позицию"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+          {/* Режим 2: Результаты распознавания и ввод нераспознанных продуктов */}
+          {recognizedItems !== null && (
+            <div className="space-y-4">
+              
+              {/* Секция нераспознанных фото */}
+              {unrecognizedPhotos.length > 0 && (
+                <div className="space-y-3">
+                  <div className="text-xs font-bold text-stone-800">
+                    Не распознано:
                   </div>
-                ))}
-              </div>
+
+                  {unrecognizedPhotos.map((photoIdx) => {
+                    const draft = getDraft(photoIdx);
+                    const photoItems = recognizedItems.filter((i) => i.photoIndex === photoIdx);
+
+                    return (
+                      <div
+                        key={photoIdx}
+                        className="p-3 bg-stone-100 rounded-2xl shadow-xs space-y-2.5"
+                      >
+                        <div className="flex gap-3 items-start">
+                          <div className="relative w-20 h-20 rounded-xl overflow-hidden shrink-0 shadow-xs bg-stone-200">
+                            <img
+                              src={images[photoIdx]}
+                              alt={`Фото ${photoIdx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <span className="absolute top-1 left-1 bg-stone-900/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded leading-none">
+                              #{photoIdx + 1}
+                            </span>
+                          </div>
+
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <input
+                              type="text"
+                              placeholder="Название продукта"
+                              value={draft.name}
+                              onChange={(e) => updateDraft(photoIdx, 'name', e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddManualItem(photoIdx);
+                                }
+                              }}
+                              className="w-full bg-white text-stone-900 text-xs font-semibold px-3 py-2 rounded-xl focus:outline-none placeholder-stone-400 shadow-2xs"
+                            />
+
+                            <div className="flex gap-2 items-center">
+                              <input
+                                type="text"
+                                placeholder="Кол-во"
+                                value={draft.quantity}
+                                onChange={(e) => updateDraft(photoIdx, 'quantity', e.target.value)}
+                                className="w-16 bg-white text-stone-900 text-[11px] px-2 py-1.5 rounded-xl focus:outline-none placeholder-stone-400 shadow-2xs"
+                              />
+
+                              <select
+                                value={draft.section}
+                                onChange={(e) => updateDraft(photoIdx, 'section', e.target.value as any)}
+                                className="flex-1 min-w-0 bg-white text-stone-800 text-[11px] font-medium px-2 py-1.5 rounded-xl focus:outline-none shadow-2xs cursor-pointer"
+                              >
+                                <option value="fridge">Холодильник</option>
+                                <option value="grains">Крупы</option>
+                                <option value="spices">Приправы</option>
+                              </select>
+
+                              <button
+                                type="button"
+                                onClick={() => handleAddManualItem(photoIdx)}
+                                disabled={!draft.name.trim()}
+                                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white p-2 rounded-xl transition-all shadow-xs shrink-0 cursor-pointer"
+                                title="Добавить продукт"
+                              >
+                                <Plus size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Добавленные вручную продукты к этому фото */}
+                        {photoItems.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            {photoItems.map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex items-center justify-between px-3 py-1.5 bg-white rounded-xl text-xs font-medium text-stone-800 shadow-2xs"
+                              >
+                                <span>
+                                  {item.name} {item.quantity ? `(${item.quantity})` : ''}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveRecognizedItem(item.id)}
+                                  className="text-stone-400 hover:text-red-500 cursor-pointer p-0.5"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Список распознанных продуктов */}
+              {recognizedItems.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-800">
+                      Распознано: {recognizedItems.filter((i) => i.selected).length} из {recognizedItems.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {recognizedItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`p-3 rounded-2xl transition-all shadow-xs flex items-center gap-2.5 ${
+                          item.selected ? 'bg-white' : 'bg-stone-100/70 opacity-60'
+                        }`}
+                      >
+                        {/* Чекбокс */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSelect(item.id)}
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+                            item.selected
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-stone-200 text-transparent hover:bg-stone-300'
+                          }`}
+                        >
+                          <Check size={14} strokeWidth={3} />
+                        </button>
+
+                        {/* Поле названия */}
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
+                          placeholder="Название продукта"
+                          className="flex-1 min-w-0 bg-transparent text-xs font-semibold text-stone-900 focus:outline-none placeholder-stone-400"
+                        />
+
+                        {/* Поле количества */}
+                        <input
+                          type="text"
+                          value={item.quantity}
+                          onChange={(e) => handleUpdateItem(item.id, 'quantity', e.target.value)}
+                          placeholder="Кол-во"
+                          className="w-16 bg-stone-100 rounded-lg px-2 py-1 text-[11px] text-stone-700 text-right focus:outline-none focus:bg-white placeholder-stone-400 shrink-0"
+                        />
+
+                        {/* Выбор секции (Холодильник / Крупы / Приправы) */}
+                        <select
+                          value={item.section}
+                          onChange={(e) => handleUpdateItem(item.id, 'section', e.target.value)}
+                          className="bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-lg px-2 py-1 text-[11px] font-medium focus:outline-none shrink-0 cursor-pointer"
+                        >
+                          <option value="fridge">Холод.</option>
+                          <option value="grains">Крупы</option>
+                          <option value="spices">Соусы</option>
+                        </select>
+
+                        {/* Удалить из списка */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRecognizedItem(item.id)}
+                          className="text-stone-400 hover:text-red-500 p-1 rounded-md transition-colors cursor-pointer shrink-0"
+                          title="Удалить позицию"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Футер с действиями */}
         <div className="p-4 bg-stone-50 shrink-0 flex gap-2.5 shadow-xs">
-          {!recognizedItems ? (
+          {recognizedItems === null ? (
             <>
               <button
                 type="button"
@@ -451,8 +632,8 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
                   </>
                 ) : (
                   <>
-                    <Sparkles size={16} />
-                    <span>Распознать ({images.length})</span>
+                    <Check size={16} />
+                    <span>Окей</span>
                   </>
                 )}
               </button>
@@ -461,7 +642,7 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
             <>
               <button
                 type="button"
-                onClick={handleReset}
+                onClick={handleBackToPhotos}
                 className="py-3 px-4 bg-stone-200 hover:bg-stone-300 text-stone-700 text-xs font-bold rounded-2xl transition-colors cursor-pointer"
               >
                 Назад
@@ -473,9 +654,7 @@ export default function ScanFridgeModal({ isOpen, onClose, onAddItems }: ScanFri
               >
                 <Check size={16} />
                 <span>
-                  Добавить (
-                  {recognizedItems.filter((i) => i.selected && i.name.trim().length > 0).length}
-                  )
+                  Добавить
                 </span>
               </button>
             </>

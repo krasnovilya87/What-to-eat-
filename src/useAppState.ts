@@ -4,6 +4,62 @@ import { getInitialSeedEvents } from './utils/geoFavorites';
 import { getInitialPurchases } from './utils/initialPurchases';
 import { v4 as uuidv4 } from 'uuid';
 import { auth, db, doc, onSnapshot, setDoc, type User, onAuthStateChanged } from './firebase';
+import {
+  DEFAULT_RUSSIAN_RECIPES,
+  DEFAULT_RUSSIAN_FRIDGE,
+  DEFAULT_RUSSIAN_GRAINS,
+  DEFAULT_RUSSIAN_SPICES
+} from './data/russianSeedData';
+
+function getInitialRecipes(): Recipe[] {
+  const seeded = localStorage.getItem('seeded_russian_recipes_v2');
+  const saved = localStorage.getItem('recipes');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        if (!seeded) {
+          localStorage.setItem('seeded_russian_recipes_v2', 'true');
+          const existingNames = new Set(parsed.map((r: Recipe) => r.name.toLowerCase().trim()));
+          const missingDefaults = DEFAULT_RUSSIAN_RECIPES.filter(
+            r => !existingNames.has(r.name.toLowerCase().trim())
+          );
+          return [...parsed, ...missingDefaults];
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.error('Error parsing saved recipes:', e);
+    }
+  }
+  localStorage.setItem('seeded_russian_recipes_v2', 'true');
+  return DEFAULT_RUSSIAN_RECIPES;
+}
+
+function getInitialInventory(key: 'fridge' | 'grains' | 'spices', defaultItems: InventoryItem[]): InventoryItem[] {
+  const seeded = localStorage.getItem(`seeded_russian_${key}_v2`);
+  const saved = localStorage.getItem(key);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        if (!seeded) {
+          localStorage.setItem(`seeded_russian_${key}_v2`, 'true');
+          const existingNames = new Set(parsed.map((i: InventoryItem) => i.name.toLowerCase().trim()));
+          const missingDefaults = defaultItems.filter(
+            i => !existingNames.has(i.name.toLowerCase().trim())
+          );
+          return [...parsed, ...missingDefaults];
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.error(`Error parsing saved ${key}:`, e);
+    }
+  }
+  localStorage.setItem(`seeded_russian_${key}_v2`, 'true');
+  return defaultItems;
+}
 
 export function useAppState() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -11,25 +67,19 @@ export function useAppState() {
   const isRemoteUpdateRef = useRef(false);
   const saveTimeoutRef = useRef<any>(null);
 
-  const [recipes, setRecipes] = useState<Recipe[]>(() => {
-    const saved = localStorage.getItem('recipes');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [recipes, setRecipes] = useState<Recipe[]>(() => getInitialRecipes());
 
-  const [fridge, setFridge] = useState<InventoryItem[]>(() => {
-    const saved = localStorage.getItem('fridge');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [fridge, setFridge] = useState<InventoryItem[]>(() => 
+    getInitialInventory('fridge', DEFAULT_RUSSIAN_FRIDGE)
+  );
 
-  const [grains, setGrains] = useState<InventoryItem[]>(() => {
-    const saved = localStorage.getItem('grains');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [grains, setGrains] = useState<InventoryItem[]>(() => 
+    getInitialInventory('grains', DEFAULT_RUSSIAN_GRAINS)
+  );
 
-  const [spices, setSpices] = useState<InventoryItem[]>(() => {
-    const saved = localStorage.getItem('spices');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [spices, setSpices] = useState<InventoryItem[]>(() => 
+    getInitialInventory('spices', DEFAULT_RUSSIAN_SPICES)
+  );
 
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>(() => {
     const saved = localStorage.getItem('shoppingList');
@@ -146,10 +196,10 @@ export function useAppState() {
         const data = snapshot.data();
         isRemoteUpdateRef.current = true;
 
-        if (Array.isArray(data.recipes)) setRecipes(data.recipes);
-        if (Array.isArray(data.fridge)) setFridge(data.fridge);
-        if (Array.isArray(data.grains)) setGrains(data.grains);
-        if (Array.isArray(data.spices)) setSpices(data.spices);
+        if (Array.isArray(data.recipes)) setRecipes(data.recipes.length > 0 ? data.recipes : DEFAULT_RUSSIAN_RECIPES);
+        if (Array.isArray(data.fridge)) setFridge(data.fridge.length > 0 ? data.fridge : DEFAULT_RUSSIAN_FRIDGE);
+        if (Array.isArray(data.grains)) setGrains(data.grains.length > 0 ? data.grains : DEFAULT_RUSSIAN_GRAINS);
+        if (Array.isArray(data.spices)) setSpices(data.spices.length > 0 ? data.spices : DEFAULT_RUSSIAN_SPICES);
         if (Array.isArray(data.shoppingList)) setShoppingList(data.shoppingList);
         if (Array.isArray(data.purchaseEvents)) setPurchaseEvents(data.purchaseEvents);
         if (Array.isArray(data.stores)) setStores(data.stores);

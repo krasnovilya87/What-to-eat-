@@ -5,9 +5,21 @@ export interface Macros {
   calories: number;
 }
 
+export const RECIPE_CATEGORIES = [
+  'Завтрак',
+  'Мясо',
+  'Курица',
+  'Рыба',
+  'Салаты',
+  'Десерты, перекус'
+] as const;
+
+export type RecipeCategory = (typeof RECIPE_CATEGORIES)[number];
+
 export interface Recipe {
   id: string;
   name: string;
+  category?: RecipeCategory;
   ingredients: string[];
   instructions: string[];
   imageUrl?: string;

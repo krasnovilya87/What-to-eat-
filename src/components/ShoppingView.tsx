@@ -260,15 +260,8 @@ export default function ShoppingView({ state }: { state: ReturnType<typeof useAp
     <div className="flex flex-col gap-6 pb-12 px-2">
       
       {/* ЕДИНЫЙ БЛОК «ПОКУПКИ» В СТИЛЕ ХОЛОДИЛЬНИКА, ЦВЕТ ЖЁЛТЫХ СТРАНИЦ БЛОКНОТА */}
-      <div className="bg-[#FAF0B2] rounded-[2rem] p-6 text-stone-950 overflow-hidden shadow-lg border border-[#E8DC96] relative">
+      <div className="bg-[#FAF0B2] rounded-[2rem] p-6 text-stone-950 overflow-hidden shadow-lg relative">
         
-        {/* Заголовок блока "Покупки" */}
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <h3 className="text-2xl font-bold flex items-center gap-3 text-stone-950 leading-tight">
-            <span className="text-3xl">🛒</span> Покупки
-          </h3>
-        </div>
-
         {/* Прямоугольные кнопки "Добавить чек", "История покупок", "Напоминания" и "График покупок" на всю ширину с текстом под кнопкой */}
         <div className="grid grid-cols-4 gap-2 sm:gap-3 w-full mb-6">
           {/* Добавить чек */}
@@ -279,7 +272,7 @@ export default function ShoppingView({ state }: { state: ReturnType<typeof useAp
             className="flex flex-col items-center w-full group cursor-pointer"
             title="Добавить фото или чек из магазина"
           >
-            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white border border-black/15 group-hover:border-black/30 flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
+            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
               <Camera size={22} className="text-stone-800 group-hover:text-amber-950 transition-colors" />
             </div>
             <span className="mt-2 text-[11px] sm:text-xs font-bold text-stone-900 text-center leading-tight">
@@ -295,9 +288,9 @@ export default function ShoppingView({ state }: { state: ReturnType<typeof useAp
             className="flex flex-col items-center w-full group cursor-pointer"
             title="Посмотреть историю покупок и графики расходов"
           >
-            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white border border-black/15 group-hover:border-black/30 flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
+            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
               {(purchases || []).length > 0 && (
-                <span className="absolute top-1.5 right-1.5 bg-stone-900 text-[#FAF0B2] text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-xs border border-white/40">
+                <span className="absolute top-1.5 right-1.5 bg-stone-900 text-[#FAF0B2] text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-xs">
                   {purchases.length}
                 </span>
               )}
@@ -316,9 +309,9 @@ export default function ShoppingView({ state }: { state: ReturnType<typeof useAp
             className="flex flex-col items-center w-full group cursor-pointer"
             title="Напоминания о покупках (по расписанию или приближению к магазину)"
           >
-            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white border border-black/15 group-hover:border-black/30 flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
+            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
               {activeRemindersCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 bg-emerald-700 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-xs border border-white/40">
+                <span className="absolute top-1.5 right-1.5 bg-emerald-700 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none shadow-xs">
                   {activeRemindersCount}
                 </span>
               )}
@@ -337,7 +330,7 @@ export default function ShoppingView({ state }: { state: ReturnType<typeof useAp
             className="flex flex-col items-center w-full group cursor-pointer"
             title="График покупок, интервалы и цены продуктов по дням, неделям, месяцам, кварталам и годам"
           >
-            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white border border-black/15 group-hover:border-black/30 flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
+            <div className="w-full h-14 sm:h-16 rounded-2xl bg-white/80 group-hover:bg-white flex items-center justify-center transition-all shadow-xs group-hover:shadow-sm active:scale-95 relative">
               <LineChart size={22} className="text-stone-800 group-hover:text-amber-950 transition-colors" />
             </div>
             <span className="mt-2 text-[11px] sm:text-xs font-bold text-stone-900 text-center leading-tight">
@@ -443,42 +436,38 @@ export default function ShoppingView({ state }: { state: ReturnType<typeof useAp
 
                 {/* Товары данного отдела */}
                 <div className="flex flex-col">
-                  {items.map((item, idx) => {
+                  {items.map((item) => {
                     const itemIsFav = isFavorite(item);
 
                     return (
-                      <React.Fragment key={item.id}>
-                        {idx > 0 && (
-                          <div className="h-px bg-stone-900/20 w-full my-0.5" />
-                        )}
-                        <div className="relative rounded-xl overflow-hidden">
-                          {/* Фоновые индикаторы свайпов: влево — удалить, вправо — куплено */}
-                          <div className="absolute inset-0 flex items-center justify-between px-3.5 rounded-xl bg-black/5 select-none pointer-events-none">
-                            <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs">
-                              <Check size={16} strokeWidth={2.5} />
-                              <span>{item.checked ? 'Вернуть' : 'Куплено'}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-stone-900 font-bold text-xs">
-                              <span>Удалить</span>
-                            </div>
+                      <div key={item.id} className="relative rounded-xl overflow-hidden">
+                        {/* Фоновые индикаторы свайпов: влево — удалить, вправо — куплено */}
+                        <div className="absolute inset-0 flex items-center justify-between px-3.5 rounded-xl bg-black/5 select-none pointer-events-none">
+                          <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs">
+                            <Check size={16} strokeWidth={2.5} />
+                            <span>{item.checked ? 'Вернуть' : 'Куплено'}</span>
                           </div>
+                          <div className="flex items-center gap-1.5 text-stone-900 font-bold text-xs">
+                            <span>Удалить</span>
+                          </div>
+                        </div>
 
-                          {/* Интерактивная строка продукта (БЕЗ прозрачности для отмеченных) */}
-                          <motion.div
-                            layout
-                            drag="x"
-                            dragConstraints={{ left: 0, right: 0 }}
-                            dragElastic={{ left: 0.6, right: 0.6 }}
-                            whileTap={{ cursor: "grabbing" }}
-                            onDragEnd={(_, info) => {
-                              if (info.offset.x < -70 || info.velocity.x < -200) {
-                                promptRemove(item);
-                              } else if (info.offset.x > 70 || info.velocity.x > 200) {
-                                toggleCheck(item.id);
-                              }
-                            }}
-                            className="relative z-10 flex items-center justify-between py-2.5 bg-[#FAF0B2] select-none cursor-grab active:cursor-grabbing"
-                          >
+                        {/* Интерактивная строка продукта (БЕЗ прозрачности для отмеченных) */}
+                        <motion.div
+                          layout
+                          drag="x"
+                          dragConstraints={{ left: 0, right: 0 }}
+                          dragElastic={{ left: 0.6, right: 0.6 }}
+                          whileTap={{ cursor: "grabbing" }}
+                          onDragEnd={(_, info) => {
+                            if (info.offset.x < -70 || info.velocity.x < -200) {
+                              promptRemove(item);
+                            } else if (info.offset.x > 70 || info.velocity.x > 200) {
+                              toggleCheck(item.id);
+                            }
+                          }}
+                          className="relative z-10 flex items-center justify-between py-2.5 bg-[#FAF0B2] select-none cursor-grab active:cursor-grabbing"
+                        >
                           <div className="flex items-center justify-between gap-2.5 flex-1 min-w-0">
                             
                             {/* Левая группа: Окошко для галочки + Звёздочка (запрет редактирования) + Название */}
@@ -551,11 +540,13 @@ export default function ShoppingView({ state }: { state: ReturnType<typeof useAp
                               />
                             </div>
                           </div>
+
+                          {/* Тонкая серая линия снизу под каждым товаром так же, как в блоке «У меня есть» */}
+                          <div className="absolute bottom-0 left-0 right-0 h-px bg-stone-900/15" />
                         </motion.div>
                       </div>
-                    </React.Fragment>
-                  );
-                })}
+                    );
+                  })}
                 </div>
               </div>
             ))}

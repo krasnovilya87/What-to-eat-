@@ -46,8 +46,6 @@ export default function SuggestionsView({ state }: { state: ReturnType<typeof us
 
   return (
     <div className="flex flex-col gap-6 pb-8 px-2">
-      <h1 className="text-2xl font-bold tracking-tight text-stone-800">Что приготовить</h1>
-
       <div className="bg-emerald-900 rounded-[2rem] p-8 flex flex-col items-center text-center gap-4 text-white relative overflow-hidden shadow-lg">
         <div className="absolute -top-10 -left-10 w-48 h-48 bg-emerald-800 rounded-full blur-3xl opacity-50"></div>
         <Sparkles className="text-emerald-100 z-10" size={40} />
