@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../useAppState';
-import { X, Trash2, Edit2, ChefHat, Minus, Plus, Check, ShoppingCart, Sparkles, Loader2 } from 'lucide-react';
+import { X, Trash2, Edit2, ChefHat, Minus, Plus, Check, ShoppingCart, Sparkles, Loader2, CheckCircle } from 'lucide-react';
 import EditRecipeModal from './EditRecipeModal';
 import { motion, PanInfo } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
@@ -11,6 +11,8 @@ import { mergeShoppingItems } from '../utils/supermarket';
 import { Recipe, RecipeCategory, RECIPE_CATEGORIES } from '../types';
 import { calculateMacros } from '../utils/macrosCalculator';
 import { getRecipeCategory } from '../utils/recipeCategories';
+import { apiPost } from '../utils/api';
+import { generateMoreLocalSuggestions, SuggestionResult } from '../utils/suggestionEngine';
 
 export default function RecipesView({ state }: { state: ReturnType<typeof useAppState> }) {
   const navigate = useNavigate();
@@ -33,6 +35,159 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
   const [calculatingRecipeId, setCalculatingRecipeId] = useState<string | null>(null);
   const [macrosViewMode, setMacrosViewMode] = useState<'per100g' | 'perPortion'>('per100g');
   const [selectedCategory, setSelectedCategory] = useState<RecipeCategory | 'all'>('all');
+
+  // Секция "Что-то новенькое"
+  const [newSuggestions, setNewSuggestions] = useState<SuggestionResult[]>([]);
+  const [loadingNew, setLoadingNew] = useState<boolean>(false);
+  const [loadingMoreNew, setLoadingMoreNew] = useState<boolean>(false);
+  const [selectedNewSuggestion, setSelectedNewSuggestion] = useState<SuggestionResult | null>(null);
+
+  React.useEffect(() => {
+    setNewSuggestions([]);
+  }, [selectedCategory]);
+
+  const getSomethingNewTitle = (cat: RecipeCategory | 'all'): string => {
+    switch (cat) {
+      case 'Завтрак':
+        return 'Что-то новенькое на завтрак';
+      case 'Мясо':
+        return 'Что-то новенькое из мяса';
+      case 'Курица':
+        return 'Что-то новенькое из курицы';
+      case 'Рыба':
+        return 'Что-то новенькое из рыбы';
+      case 'Салаты':
+        return 'Что-то новенькое. Салат';
+      case 'Десерты, перекус':
+        return 'Что-то новенькое. Десерты и перекус';
+      default:
+        return 'Что-то новенькое';
+    }
+  };
+
+  const getNewSuggestionMissingCount = (sug: SuggestionResult): number => {
+    if (sug.missingIngredients && Array.isArray(sug.missingIngredients) && sug.missingIngredients.length > 0) {
+      return sug.missingIngredients.length;
+    }
+    const ings = sug.ingredients || [];
+    if (ings.length === 0) return 0;
+    const needed = calculateNeededIngredients(ings, allInventory);
+    return needed.length;
+  };
+
+  const suggestionToRecipe = (sug: SuggestionResult): Recipe => {
+    return {
+      id: sug.recipeId || `sug-${sug.name}`,
+      name: sug.name,
+      category: sug.category || (selectedCategory !== 'all' ? selectedCategory : 'Завтрак'),
+      imageUrl: sug.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80',
+      ingredients: sug.ingredients && sug.ingredients.length > 0 
+        ? sug.ingredients 
+        : (sug.missingIngredients?.length ? sug.missingIngredients : ['По вкусу']),
+      instructions: sug.instructions && sug.instructions.length > 0 
+        ? sug.instructions 
+        : ['Приготовить ингредиенты и подавать к столу.'],
+      basePortions: sug.portions || 2,
+      portions: sug.portions || 2,
+      macros: sug.calories ? { calories: sug.calories, protein: 0, fat: 0, carbs: 0 } : undefined,
+      totalWeight: sug.totalWeight
+    };
+  };
+
+  const isAlreadyInRecipes = (name: string): boolean => {
+    const key = name.toLowerCase().trim();
+    return recipes.some(r => r.name.toLowerCase().trim() === key);
+  };
+
+  const handleSaveNewRecipe = (sug: SuggestionResult) => {
+    const newRecipe: Recipe = suggestionToRecipe(sug);
+    newRecipe.id = uuidv4();
+    setRecipes(prev => [newRecipe, ...(prev || [])]);
+    setToastMessage(`«${sug.name}» добавлен в мои рецепты!`);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleFetchNewDishes = async () => {
+    if (loadingNew) return;
+    setLoadingNew(true);
+    const inventoryNames = allInventory.map(f => f.name);
+    const excludeNames = [
+      ...recipes.map(r => r.name),
+      ...newSuggestions.map(s => s.name)
+    ];
+    const categories = selectedCategory !== 'all' ? [selectedCategory] : undefined;
+
+    try {
+      const data = await apiPost('/api/suggest-more-new', {
+        fridgeItems: inventoryNames,
+        excludeNames,
+        categories
+      });
+
+      if (data?.newSuggestions && Array.isArray(data.newSuggestions) && data.newSuggestions.length > 0) {
+        setNewSuggestions(data.newSuggestions.slice(0, 6));
+        return;
+      }
+
+      const moreLocal = generateMoreLocalSuggestions(inventoryNames, excludeNames, 6, categories);
+      setNewSuggestions(moreLocal);
+    } catch {
+      const moreLocal = generateMoreLocalSuggestions(inventoryNames, excludeNames, 6, categories);
+      setNewSuggestions(moreLocal);
+    } finally {
+      setLoadingNew(false);
+    }
+  };
+
+  const handleLoadMoreNewDishes = async () => {
+    if (loadingMoreNew) return;
+    setLoadingMoreNew(true);
+    const inventoryNames = allInventory.map(f => f.name);
+    const excludeNames = [
+      ...recipes.map(r => r.name),
+      ...newSuggestions.map(s => s.name)
+    ];
+    const categories = selectedCategory !== 'all' ? [selectedCategory] : undefined;
+
+    try {
+      const data = await apiPost('/api/suggest-more-new', {
+        fridgeItems: inventoryNames,
+        excludeNames,
+        categories
+      });
+
+      if (data?.newSuggestions && Array.isArray(data.newSuggestions) && data.newSuggestions.length > 0) {
+        setNewSuggestions(prev => [...prev, ...data.newSuggestions]);
+        return;
+      }
+
+      const moreLocal = generateMoreLocalSuggestions(inventoryNames, excludeNames, 6, categories);
+      if (moreLocal.length > 0) {
+        setNewSuggestions(prev => [...prev, ...moreLocal]);
+      }
+    } catch {
+      const moreLocal = generateMoreLocalSuggestions(inventoryNames, excludeNames, 6, categories);
+      if (moreLocal.length > 0) {
+        setNewSuggestions(prev => [...prev, ...moreLocal]);
+      }
+    } finally {
+      setLoadingMoreNew(false);
+    }
+  };
+
+  const handleNewCardClick = (sug: SuggestionResult) => {
+    if (isLongPressTriggeredRef.current) {
+      isLongPressTriggeredRef.current = false;
+      return;
+    }
+    if (isSelectingCookToday) {
+      const targetRecipe = suggestionToRecipe(sug);
+      setCookingRecipe(targetRecipe);
+      setPortionsInput(targetRecipe.portions || targetRecipe.basePortions || 2);
+    } else {
+      setSelectedNewSuggestion(sug);
+    }
+  };
 
   const filteredRecipes = React.useMemo(() => {
     if (selectedCategory === 'all') return recipes;
@@ -348,11 +503,22 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
       setShoppingList(prev => mergeShoppingItems(prev || [], newShoppingItems));
       
       // Обновляем порции и статус в рецептах
-      setRecipes(prev => (prev || []).map(r => r.id === cookingRecipe.id ? { 
-        ...r, 
-        portions: portions,
-        isPrepared: true 
-      } : r));
+      const existsInRecipes = (recipes || []).some(r => r.id === cookingRecipe.id || r.name.toLowerCase().trim() === cookingRecipe.name.toLowerCase().trim());
+      if (existsInRecipes) {
+        setRecipes(prev => (prev || []).map(r => (r.id === cookingRecipe.id || r.name.toLowerCase().trim() === cookingRecipe.name.toLowerCase().trim()) ? { 
+          ...r, 
+          portions: portions,
+          isPrepared: true 
+        } : r));
+      } else {
+        const newRec: Recipe = {
+          ...cookingRecipe,
+          id: cookingRecipe.id || uuidv4(),
+          portions: portions,
+          isPrepared: true
+        };
+        setRecipes(prev => [newRec, ...(prev || [])]);
+      }
       
       const recipeName = cookingRecipe.name;
       setToastMessage(`«${recipeName}» (${portions} порц.) добавлено в покупки!`);
@@ -512,6 +678,111 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
           ))}
         </div>
       )}
+
+      {/* Секция "Что-то новенькое" */}
+      <div className="px-2 mt-4 flex flex-col gap-4">
+        {newSuggestions.length === 0 ? (
+          <button
+            onClick={handleFetchNewDishes}
+            disabled={loadingNew}
+            className="w-full py-4 bg-white hover:bg-stone-50 text-stone-900 font-bold rounded-2xl md:rounded-[2rem] transition-all flex items-center justify-center gap-2.5 text-sm md:text-base shadow-sm active:scale-98 cursor-pointer disabled:opacity-60"
+          >
+            {loadingNew ? (
+              <>
+                <Loader2 size={18} className="animate-spin text-stone-600" />
+                <span>Подбираем...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles size={18} className="text-amber-500" />
+                <span>{getSomethingNewTitle(selectedCategory)}</span>
+              </>
+            )}
+          </button>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex justify-between items-center px-1">
+              <h3 className="font-bold text-lg md:text-xl text-stone-800">
+                {getSomethingNewTitle(selectedCategory)}
+              </h3>
+              <span className="text-[10px] font-bold text-stone-600 bg-stone-100 px-3 py-1 rounded-full uppercase tracking-wider">
+                {newSuggestions.length} вариантов
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {newSuggestions.map((sug, index) => {
+                const missingCount = getNewSuggestionMissingCount(sug);
+                const isPrepared = recipes.some(r => r.name.toLowerCase().trim() === sug.name.toLowerCase().trim() && r.isPrepared);
+                return (
+                  <motion.div
+                    key={`new-sug-${sug.name}-${index}`}
+                    className="bg-white rounded-2xl md:rounded-[2rem] shadow-sm overflow-hidden flex flex-col cursor-pointer transition-all hover:shadow-md relative select-none"
+                    onClick={() => handleNewCardClick(sug)}
+                  >
+                    {isSelectingCookToday ? (
+                      isPrepared ? (
+                        <div className="absolute top-2 left-2 z-10 bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow flex items-center gap-1">
+                          <Check size={12} /> {sug.portions || 1} порц.
+                        </div>
+                      ) : (
+                        <div className="absolute top-2 left-2 z-10 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
+                          + Выбрать
+                        </div>
+                      )
+                    ) : (
+                      missingCount > 0 ? (
+                        <div className="absolute top-2 left-2 z-10 bg-black/60 backdrop-blur-xs text-white text-[10px] font-medium px-2 py-0.5 rounded-full shadow-xs">
+                          Не хватает: {missingCount}
+                        </div>
+                      ) : (
+                        <div className="absolute top-2 left-2 z-10 bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                          Все продукты
+                        </div>
+                      )
+                    )}
+
+                    {sug.imageUrl ? (
+                      <img src={sug.imageUrl} alt={sug.name} className="w-full h-32 md:h-48 object-cover" />
+                    ) : (
+                      <div className="w-full h-32 md:h-48 bg-stone-100 flex items-center justify-center text-stone-400 text-sm">
+                        Нет фото
+                      </div>
+                    )}
+
+                    <div className="p-3 md:p-6 flex flex-col items-start justify-between flex-grow">
+                      <div className="w-full">
+                        <h3 className="font-bold text-base md:text-xl text-stone-800 leading-tight line-clamp-2">
+                          {sug.name}
+                        </h3>
+                        <p className="text-xs md:text-sm text-stone-500 mt-1">
+                          {(sug.ingredients?.length || sug.missingIngredients?.length || 0)} ингр.
+                          {sug.calories && sug.calories > 0 ? ` • ${sug.calories} ккал` : ''}
+                        </p>
+                        <p className="text-xs font-bold text-emerald-600 mt-1">
+                          {sug.portions || 2} порций {sug.totalWeight ? ` • ~${sug.totalWeight} г` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={handleLoadMoreNewDishes}
+              disabled={loadingMoreNew}
+              className="w-full py-3.5 bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 text-sm shadow-xs cursor-pointer active:scale-98 disabled:opacity-50 mt-1"
+            >
+              {loadingMoreNew ? (
+                <Loader2 size={18} className="animate-spin text-stone-600" />
+              ) : (
+                <span>Ещё</span>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Модальное окно просмотра рецепта */}
       {expandedId && (
@@ -761,6 +1032,162 @@ export default function RecipesView({ state }: { state: ReturnType<typeof useApp
                 </>
               );
             })()}
+          </motion.div>
+        </div>
+      )}
+
+      {/* Модальное окно просмотра блюда из "Что-то новенькое" */}
+      {selectedNewSuggestion && (
+        <div 
+          className="fixed inset-0 bg-stone-900/50 z-[60] flex flex-col justify-end sm:items-center sm:justify-center p-0 sm:p-4" 
+          onClick={() => setSelectedNewSuggestion(null)}
+        >
+          <motion.div 
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="bg-white rounded-t-[2rem] sm:rounded-[2rem] w-full sm:max-w-xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl relative"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="absolute top-4 inset-x-4 z-10 flex items-center justify-between pointer-events-none">
+              <div className="pointer-events-auto">
+                <span className="bg-black/40 backdrop-blur-md text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-md">
+                  {selectedNewSuggestion.category || (selectedCategory !== 'all' ? selectedCategory : 'Идея')}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 pointer-events-auto">
+                <button 
+                  onClick={() => setSelectedNewSuggestion(null)} 
+                  className="bg-black/40 hover:bg-black/60 text-white rounded-full p-2 backdrop-blur-md transition-colors shadow-md cursor-pointer"
+                  title="Закрыть"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-y-auto no-scrollbar flex-1">
+              {selectedNewSuggestion.imageUrl ? (
+                <img src={selectedNewSuggestion.imageUrl} alt={selectedNewSuggestion.name} className="w-full h-64 object-cover" />
+              ) : (
+                <div className="w-full h-48 bg-stone-100 flex items-center justify-center text-stone-400">
+                  Нет фото
+                </div>
+              )}
+
+              <div className="p-6 flex flex-col gap-6">
+                <div>
+                  <h2 className="font-bold text-2xl text-stone-800 leading-tight">
+                    {selectedNewSuggestion.name}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-2">
+                    <p className="text-sm font-bold text-emerald-600">
+                      {selectedNewSuggestion.portions || 2} порций
+                      {selectedNewSuggestion.totalWeight ? ` • ~${selectedNewSuggestion.totalWeight} г` : ''}
+                      {selectedNewSuggestion.calories ? ` • ${selectedNewSuggestion.calories} ккал` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Статус наличия ингредиентов */}
+                {selectedNewSuggestion.missingIngredients && selectedNewSuggestion.missingIngredients.length > 0 ? (
+                  <div className="bg-stone-50 p-4 rounded-2xl flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold text-stone-500">Не хватает:</span>
+                    <p className="text-sm font-medium text-stone-800">
+                      {selectedNewSuggestion.missingIngredients.join(', ')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-emerald-50/70 p-4 rounded-2xl flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                    <CheckCircle size={18} className="text-emerald-600 shrink-0" />
+                    <span>Все ингредиенты в наличии</span>
+                  </div>
+                )}
+
+                {/* Ингредиенты */}
+                <div>
+                  <h4 className="font-bold text-stone-400 text-[10px] mb-3 uppercase tracking-widest">
+                    Ингредиенты
+                  </h4>
+                  <ul className="text-sm space-y-2">
+                    {(selectedNewSuggestion.ingredients && selectedNewSuggestion.ingredients.length > 0
+                      ? selectedNewSuggestion.ingredients
+                      : selectedNewSuggestion.missingIngredients || []
+                    ).map((ing, i) => {
+                      const status = checkIngredientStatus(ing, allInventory);
+                      let colorClass = 'text-red-600';
+                      if (status === 'green') colorClass = 'text-emerald-600';
+                      else if (status === 'yellow') colorClass = 'text-yellow-600';
+
+                      let dotClass = 'bg-red-500';
+                      if (status === 'green') dotClass = 'bg-emerald-500';
+                      else if (status === 'yellow') dotClass = 'bg-yellow-500';
+
+                      return (
+                        <li key={i} className={`flex items-start gap-2 ${colorClass}`}>
+                          <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${dotClass}`} />
+                          <span>{ing}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+
+                {/* Инструкция */}
+                {selectedNewSuggestion.instructions && selectedNewSuggestion.instructions.length > 0 && (
+                  <div>
+                    <h4 className="font-bold text-stone-400 text-[10px] mb-3 uppercase tracking-widest">
+                      Инструкция
+                    </h4>
+                    <ol className="list-decimal list-inside text-sm text-stone-700 space-y-3">
+                      {selectedNewSuggestion.instructions.map((inst, i) => (
+                        <li key={i} className="leading-relaxed">{inst}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Нижняя панель действий */}
+            <div className="p-4 pb-8 sm:pb-4 bg-white shrink-0 shadow-[0_-4px_12px_rgba(0,0,0,0.03)]">
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <button 
+                  onClick={() => {
+                    const targetRec = suggestionToRecipe(selectedNewSuggestion);
+                    setCookingRecipe(targetRec);
+                    setPortionsInput(targetRec.portions || targetRec.basePortions || 2);
+                    setSelectedNewSuggestion(null);
+                  }}
+                  className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 text-sm shadow-sm cursor-pointer active:scale-98"
+                >
+                  <ChefHat size={18} />
+                  <span>Готовлю сегодня</span>
+                </button>
+
+                {isAlreadyInRecipes(selectedNewSuggestion.name) ? (
+                  <button 
+                    onClick={() => {
+                      setToastMessage(`«${selectedNewSuggestion.name}» уже есть в ваших рецептах!`);
+                      setTimeout(() => setToastMessage(null), 3000);
+                    }}
+                    className="py-3.5 px-5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded-xl transition-all flex items-center justify-center gap-2 text-sm shadow-2xs cursor-pointer active:scale-98"
+                  >
+                    <Check size={18} className="text-emerald-600" />
+                    <span>В моих рецептах</span>
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => handleSaveNewRecipe(selectedNewSuggestion)}
+                    className="py-3.5 px-5 bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold rounded-xl transition-all flex items-center justify-center gap-2 text-sm shadow-2xs cursor-pointer active:scale-98"
+                  >
+                    <Plus size={18} />
+                    <span>Добавить в мои рецепты</span>
+                  </button>
+                )}
+              </div>
+            </div>
           </motion.div>
         </div>
       )}

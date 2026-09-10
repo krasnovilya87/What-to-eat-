@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
-import { Home, Refrigerator, ShoppingCart, Sparkles } from 'lucide-react';
+import { Home, Refrigerator, ShoppingCart, Sparkles, Calendar } from 'lucide-react';
 import RecipesView from './components/RecipesView';
 import FridgeView from './components/FridgeView';
 import ShoppingView from './components/ShoppingView';
-import SuggestionsView from './components/SuggestionsView';
+import CalendarView from './components/CalendarView';
 import AddRecipeView from './components/AddRecipeView';
 import RemindersWatcher from './components/RemindersWatcher';
 import ActiveReminderAlertModal from './components/ActiveReminderAlertModal';
+import AiAssistantModal from './components/AiAssistantModal';
 import { UserAuthButton } from './components/UserAuthButton';
 import { AuthModal } from './components/AuthModal';
 import { AuthProvider } from './AuthContext';
@@ -29,8 +30,8 @@ function AppHeader() {
     if (location.pathname.startsWith('/shopping')) {
       return { title: 'Покупки', badge: 'П' };
     }
-    if (location.pathname.startsWith('/suggest')) {
-      return { title: 'Что приготовить', badge: 'Ч' };
+    if (location.pathname.startsWith('/calendar') || location.pathname.startsWith('/suggest')) {
+      return { title: 'Календарь питания', badge: 'К' };
     }
     // Default (рецепты / добавление)
     return { title: 'Что поесть', badge: 'Ч' };
@@ -55,6 +56,7 @@ function AppHeader() {
 
 export default function App() {
   const appState = useAppState();
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
   return (
     <AuthProvider>
@@ -62,6 +64,11 @@ export default function App() {
         <RemindersWatcher state={appState} />
         <ActiveReminderAlertModal state={appState} />
         <AuthModal />
+        <AiAssistantModal 
+          isOpen={isAiModalOpen} 
+          onClose={() => setIsAiModalOpen(false)} 
+          state={appState} 
+        />
         <div className="flex flex-col h-screen bg-stone-50 overflow-hidden pb-20">
           {/* Header Logo & Auth Button с динамическим названием вкладки */}
           <AppHeader />
@@ -73,7 +80,8 @@ export default function App() {
               <Route path="/add" element={<div className="max-w-md mx-auto p-4"><AddRecipeView state={appState} /></div>} />
               <Route path="/fridge" element={<div className="max-w-md mx-auto p-4"><FridgeView state={appState} /></div>} />
               <Route path="/shopping" element={<ShoppingView state={appState} />} />
-              <Route path="/suggest" element={<div className="max-w-md mx-auto p-4"><SuggestionsView state={appState} /></div>} />
+              <Route path="/calendar" element={<CalendarView state={appState} />} />
+              <Route path="/suggest" element={<CalendarView state={appState} />} />
             </Routes>
           </main>
 
@@ -81,8 +89,24 @@ export default function App() {
           <nav className="fixed bottom-0 w-full bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.06)] flex justify-around items-start pt-2.5 pb-5 h-20 shrink-0 z-50">
             <NavItem to="/" icon={<Home size={24} />} label="Рецепты" />
             <NavItem to="/fridge" icon={<Refrigerator size={24} />} label="У меня есть" />
+            
+            {/* Центральная круглая кнопка вызова ИИ, приподнятая над меню */}
+            <div className="relative flex flex-col items-center justify-center -mt-6">
+              <button
+                type="button"
+                onClick={() => setIsAiModalOpen(true)}
+                className="w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-[0_8px_20px_rgba(5,150,105,0.4)] flex items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer"
+                title="ИИ Шеф"
+              >
+                <Sparkles size={26} className="text-white" />
+              </button>
+              <span className="text-[11px] font-semibold text-emerald-700 mt-1 leading-tight tracking-tight whitespace-nowrap">
+                ИИ Шеф
+              </span>
+            </div>
+
             <NavItem to="/shopping" icon={<ShoppingCart size={24} />} label="Покупки" />
-            <NavItem to="/suggest" icon={<Sparkles size={24} />} label="Что приготовить" />
+            <NavItem to="/calendar" icon={<Calendar size={24} />} label="Календарь" />
           </nav>
         </div>
       </BrowserRouter>

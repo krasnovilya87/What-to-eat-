@@ -1,5 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Recipe, InventoryItem, ShoppingItem, ProductPurchaseEvent, StoreLocation, FavoriteProductConfig, ReceiptPurchase, ShoppingReminder } from './types';
+import { 
+  Recipe, 
+  InventoryItem, 
+  ShoppingItem, 
+  ProductPurchaseEvent, 
+  StoreLocation, 
+  FavoriteProductConfig, 
+  ReceiptPurchase, 
+  ShoppingReminder,
+  PlannedMeal,
+  NutritionGoal,
+  MealSlotId
+} from './types';
 import { getInitialSeedEvents } from './utils/geoFavorites';
 import { getInitialPurchases } from './utils/initialPurchases';
 import { v4 as uuidv4 } from 'uuid';
@@ -59,6 +71,72 @@ function getInitialInventory(key: 'fridge' | 'grains' | 'spices', defaultItems: 
   }
   localStorage.setItem(`seeded_russian_${key}_v2`, 'true');
   return defaultItems;
+}
+
+function getInitialPlannedMeals(): PlannedMeal[] {
+  const saved = localStorage.getItem('plannedMeals');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {
+      console.error('Error parsing planned meals:', e);
+    }
+  }
+  const today = new Date().toISOString().split('T')[0];
+  return [
+    {
+      id: 'plan-1',
+      date: today,
+      slotId: 'breakfast',
+      recipeId: 'rec-bf-1',
+      recipeName: 'Пышные сырники из творога со сметаной',
+      imageUrl: 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?auto=format&fit=crop&w=800&q=80',
+      category: 'Завтрак',
+      portions: 1,
+      macros: { protein: 15, fat: 8, carbs: 16, calories: 198 }
+    },
+    {
+      id: 'plan-2',
+      date: today,
+      slotId: 'lunch',
+      recipeId: 'rec-meat-1',
+      recipeName: 'Бефстроганов из говядины в сметанном соусе',
+      imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=800&q=80',
+      category: 'Мясо',
+      portions: 1,
+      macros: { protein: 24, fat: 18, carbs: 7, calories: 286 }
+    },
+    {
+      id: 'plan-3',
+      date: today,
+      slotId: 'dinner',
+      recipeId: 'rec-bf-2',
+      recipeName: 'Нежный омлет с молоком на сливочном масле',
+      imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=800&q=80',
+      category: 'Завтрак',
+      portions: 1,
+      macros: { protein: 11, fat: 13, carbs: 3, calories: 171 }
+    }
+  ];
+}
+
+function getInitialNutritionGoal(): NutritionGoal {
+  const saved = localStorage.getItem('nutritionGoal');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed.calories === 'number') return parsed;
+    } catch (e) {
+      console.error('Error parsing nutrition goal:', e);
+    }
+  }
+  return {
+    calories: 2000,
+    protein: 110,
+    fat: 65,
+    carbs: 240
+  };
 }
 
 export function useAppState() {
@@ -174,6 +252,9 @@ export function useAppState() {
     distanceMeters?: number;
   } | null>(null);
 
+  const [plannedMeals, setPlannedMeals] = useState<PlannedMeal[]>(() => getInitialPlannedMeals());
+  const [nutritionGoal, setNutritionGoal] = useState<NutritionGoal>(() => getInitialNutritionGoal());
+
   // Listen to Auth State
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -207,6 +288,8 @@ export function useAppState() {
         if (Array.isArray(data.favoriteConfigs)) setFavoriteConfigs(data.favoriteConfigs);
         if (Array.isArray(data.purchases)) setPurchases(data.purchases);
         if (Array.isArray(data.reminders)) setReminders(data.reminders);
+        if (Array.isArray(data.plannedMeals)) setPlannedMeals(data.plannedMeals);
+        if (data.nutritionGoal && typeof data.nutritionGoal.calories === 'number') setNutritionGoal(data.nutritionGoal);
 
         setIsCloudSynced(true);
         setTimeout(() => {
@@ -227,6 +310,8 @@ export function useAppState() {
           favoriteConfigs,
           purchases,
           reminders,
+          plannedMeals,
+          nutritionGoal,
           updatedAt: new Date().toISOString()
         }, { merge: true })
           .then(() => setIsCloudSynced(true))
@@ -262,6 +347,8 @@ export function useAppState() {
         favoriteConfigs,
         purchases,
         reminders,
+        plannedMeals,
+        nutritionGoal,
         updatedAt: new Date().toISOString()
       }, { merge: true })
         .then(() => setIsCloudSynced(true))
@@ -269,7 +356,8 @@ export function useAppState() {
     }, 800);
   }, [
     currentUser, recipes, fridge, grains, spices, shoppingList, 
-    purchaseEvents, stores, geoReminderEnabled, favoriteConfigs, purchases, reminders
+    purchaseEvents, stores, geoReminderEnabled, favoriteConfigs, purchases, reminders,
+    plannedMeals, nutritionGoal
   ]);
 
   // Save to LocalStorage and trigger Firestore sync
@@ -328,6 +416,67 @@ export function useAppState() {
     syncToFirestore();
   }, [reminders, syncToFirestore]);
 
+  useEffect(() => {
+    localStorage.setItem('plannedMeals', JSON.stringify(plannedMeals));
+    syncToFirestore();
+  }, [plannedMeals, syncToFirestore]);
+
+  useEffect(() => {
+    localStorage.setItem('nutritionGoal', JSON.stringify(nutritionGoal));
+    syncToFirestore();
+  }, [nutritionGoal, syncToFirestore]);
+
+  const addPlannedMeal = useCallback((meal: Omit<PlannedMeal, 'id'>) => {
+    const newMeal: PlannedMeal = {
+      ...meal,
+      id: uuidv4()
+    };
+    setPlannedMeals(prev => [...(prev || []), newMeal]);
+  }, []);
+
+  const removePlannedMeal = useCallback((id: string) => {
+    setPlannedMeals(prev => (prev || []).filter(m => m.id !== id));
+  }, []);
+
+  const updatePlannedMealPortions = useCallback((id: string, portions: number) => {
+    if (portions <= 0) {
+      setPlannedMeals(prev => (prev || []).filter(m => m.id !== id));
+      return;
+    }
+    setPlannedMeals(prev => (prev || []).map(m => {
+      if (m.id === id) {
+        const factor = portions / (m.portions || 1);
+        return {
+          ...m,
+          portions,
+          macros: {
+            protein: Math.round(m.macros.protein * factor * 10) / 10,
+            fat: Math.round(m.macros.fat * factor * 10) / 10,
+            carbs: Math.round(m.macros.carbs * factor * 10) / 10,
+            calories: Math.round(m.macros.calories * factor)
+          }
+        };
+      }
+      return m;
+    }));
+  }, []);
+
+  const clearDayPlan = useCallback((date: string) => {
+    setPlannedMeals(prev => (prev || []).filter(m => m.date !== date));
+  }, []);
+
+  const applyDayPlan = useCallback((date: string, meals: Array<Omit<PlannedMeal, 'id' | 'date'>>) => {
+    const newMeals: PlannedMeal[] = meals.map(m => ({
+      ...m,
+      id: uuidv4(),
+      date
+    }));
+    setPlannedMeals(prev => [
+      ...(prev || []).filter(m => m.date !== date),
+      ...newMeals
+    ]);
+  }, []);
+
   const addReminder = useCallback((reminder: ShoppingReminder) => {
     setReminders(prev => [reminder, ...(prev || [])]);
   }, []);
@@ -384,6 +533,13 @@ export function useAppState() {
     deleteReminder,
     toggleReminder,
     activeReminderAlert, setActiveReminderAlert,
+    plannedMeals, setPlannedMeals,
+    nutritionGoal, setNutritionGoal,
+    addPlannedMeal,
+    removePlannedMeal,
+    updatePlannedMealPortions,
+    clearDayPlan,
+    applyDayPlan,
     currentUser,
     isCloudSynced
   };

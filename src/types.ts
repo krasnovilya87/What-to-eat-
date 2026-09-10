@@ -119,3 +119,37 @@ export interface ShoppingReminder {
   lastTriggeredAt?: number;
 }
 
+export type MealSlotId = 'breakfast' | 'lunch' | 'afternoon_snack' | 'dinner' | 'snack';
+
+export interface MealSlotConfig {
+  id: MealSlotId;
+  name: string;
+}
+
+export const DEFAULT_MEAL_SLOTS: MealSlotConfig[] = [
+  { id: 'breakfast', name: 'Завтрак' },
+  { id: 'lunch', name: 'Обед' },
+  { id: 'afternoon_snack', name: 'Полдник' },
+  { id: 'dinner', name: 'Ужин' },
+  { id: 'snack', name: 'Перекус' }
+];
+
+export interface PlannedMeal {
+  id: string;
+  date: string; // YYYY-MM-DD
+  slotId: MealSlotId;
+  recipeId: string;
+  recipeName: string;
+  imageUrl?: string;
+  category?: RecipeCategory;
+  portions: number;
+  macros: Macros;
+}
+
+export interface NutritionGoal {
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+}
+
