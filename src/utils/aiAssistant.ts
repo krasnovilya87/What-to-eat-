@@ -147,9 +147,9 @@ export function parseItemWithQuantity(raw: string): { name: string; quantity?: s
 export function extractShoppingItems(prompt: string): Array<{ name: string; quantity?: string }> {
   let cleaned = prompt
     // Удаляем фразы списка покупок
-    .replace(/(?:в\s+)?(?:список\s+покупок|список|покупки|покупок)\b/gi, ' ')
+    .replace(/(?:в\s+)?(?:список\s+покупок|список|покупки|покупок)/gi, ' ')
     // Удаляем глаголы и служебные слова
-    .replace(/\b(?:добавь(?:те)?|добавить|занеси(?:те)?|запиши(?:те)?|включи(?:те)?|внеси(?:те)?|купи(?:ть)?|надо\s+купить|нужно\s+купить|хочу\s+купить|пожалуйста)\b/gi, ' ')
+    .replace(/(?:добавь(?:те)?|добавить|занеси(?:те)?|запиши(?:те)?|включи(?:те)?|внеси(?:те)?|купи(?:ть)?|надо\s+купить|нужно\s+купить|хочу\s+купить|пожалуйста)/gi, ' ')
     .replace(/^\s*(?:в|на|для)\s+/i, ' ')
     .trim();
 
@@ -174,8 +174,8 @@ export function extractShoppingItems(prompt: string): Array<{ name: string; quan
 // Надёжное извлечение продуктов для холодильника / кладовой
 export function extractFridgeItems(prompt: string): AssistantActionItem[] {
   let cleaned = prompt
-    .replace(/(?:в\s+)?(?:холодильник\w*|морозилк\w*|кладов\w*|шкаф\w*|наличи\w*)\b/gi, ' ')
-    .replace(/\b(?:добавь(?:те)?|добавить|положи(?:те)?|занеси(?:те)?|запиши(?:те)?|купил(?:а|и)?|у\s+меня\s+есть|дома\s+есть|в\s+наличии|есть|пожалуйста)\b/gi, ' ')
+    .replace(/(?:в\s+)?(?:холодильник\w*|морозилк\w*|кладов\w*|шкаф\w*|наличи\w*)/gi, ' ')
+    .replace(/(?:добавь(?:те)?|добавить|положи(?:те)?|занеси(?:те)?|запиши(?:те)?|купил(?:а|и)?|у\s+меня\s+есть|дома\s+есть|в\s+наличии|есть|пожалуйста)/gi, ' ')
     .replace(/^\s*(?:в|на|для)\s+/i, ' ')
     .trim();
 
@@ -219,12 +219,12 @@ export function processAssistantLocal(
   const removedInventory: string[] = [];
 
   // 1. Проверка удаления продуктов ("закончилось молоко", "съели сыр")
-  const isRemoval = /(?:закончил(?:ся|ась|ось|ись)|съел(?:а|и)?|удали(?:ть)?|убери(?:те)?|выброси(?:л|ла|ть)?|нет больше)\b/i.test(lowerPrompt);
+  const isRemoval = /(?:закончил|съел|удали|убери|выброси|нет больше)/i.test(lowerPrompt);
   if (isRemoval) {
     const allInv = [...existingState.fridge, ...existingState.grains, ...existingState.spices];
     for (const inv of allInv) {
-      const invWord = inv.name.toLowerCase().slice(0, 4);
-      if (invWord.length >= 3 && lowerPrompt.includes(invWord)) {
+      const invStem = inv.name.toLowerCase().slice(0, 4);
+      if (invStem.length >= 3 && lowerPrompt.includes(invStem)) {
         removedInventory.push(inv.name);
       }
     }
@@ -235,17 +235,18 @@ export function processAssistantLocal(
     }
   }
 
-  // 2. Определение намерений пользователя
-  const shoppingTriggers = /(?:покупк\w*|список(?:\s+покупок)?|купи(?:ть)?|надо\s+купить|нужно\s+купить|в\s+покупки|в\s+список|запиши\s+в\s+список|добавь\s+(?:в\s+)?покупк\w*)\b/i;
-  const fridgeTriggers = /(?:холодильник\w*|морозилк\w*|кладов\w*|у\s+меня\s+есть|купил(?:а|и)?|дома\s+есть|в\s+наличии|положи\s+в\s+холодильник)\b/i;
-  // РЕЦЕПТ предлагается ТОЛЬКО И ИСКЛЮЧИТЕЛЬНО по прямой просьбе пользователя!
-  const cookTriggers = /(?:что\s+(?:можно\s+)?приготовить|как\s+приготовить|рецепт\w*|предложи\s+(?:блюдо|рецепт)|хочу\s+приготовить|хочу\s+поесть|свари(?:ть)?|пожарь(?:те)?|испе(?:чь|ки)|приготовь\w*|что\s+сварить|что\s+пожарить|что\s+поесть|меню\s+на|идея\s+для\s+ужина|идеи\s+для\s+обеда)\b/i;
+  // 2. Определение намерений пользователя (без ASCII \b, корректно для кириллицы)
+  const shoppingTriggers = /(?:покуп|список(?:\s+покупок)?|купи|надо\s+купить|нужно\s+купить|в\s+покупки|в\s+список|запиши\s+в\s+список|добавь\s+(?:в\s+)?покуп)/i;
+  const fridgeTriggers = /(?:холодильник|морозилк|кладов|у\s+меня\s+есть|купил|дома\s+есть|в\s+наличии|положи\s+в\s+холодильник)/i;
+  // РЕЦЕПТ предлагается по прямой просьбе пользователя, поиску, идеям блюд или вопросу о готовке
+  const cookTriggers = /(?:найди|найти|поищи|покажи|подскажи|какой-нибудь|что\s+(?:можно\s+)?приготовить|как\s+приготовить|рецепт|блюд|предложи\s+(?:блюдо|рецепт)|хочу\s+приготовить|хочу\s+поесть|свари|пожарь|испе|приготов|что\s+сварить|что\s+пожарить|что\s+поесть|меню|ужин|обед|завтрак)/i;
 
   const hasShopping = shoppingTriggers.test(lowerPrompt);
   const hasFridge = fridgeTriggers.test(lowerPrompt);
   const hasCook = cookTriggers.test(lowerPrompt);
+  const isSearchQuery = /(?:найди|найти|поищи|покажи|какой-нибудь|рецепт|блюд)/i.test(lowerPrompt);
 
-  // 3. Извлечение продуктов для списка покупок
+  // 3. Извлечение продуктов для списка покупок (только если прямо попросили о покупках)
   if (hasShopping) {
     const items = extractShoppingItems(prompt);
     for (const it of items) {
@@ -262,8 +263,8 @@ export function processAssistantLocal(
   }
 
   // 5. Если пользователь просто продиктовал список продуктов (например "молоко, сыр, хлеб 1 шт")
-  // без слов "приготовить/рецепт", добавляем их в список покупок
-  if (!hasShopping && !hasFridge && !hasCook && lowerPrompt.length > 2) {
+  // без слов "приготовить/рецепт/найди", добавляем их в список покупок
+  if (!hasShopping && !hasFridge && !hasCook && !isSearchQuery && lowerPrompt.length > 2) {
     const items = extractShoppingItems(prompt);
     if (items.length > 0) {
       for (const it of items) {
@@ -272,19 +273,25 @@ export function processAssistantLocal(
     }
   }
 
-  // 6. Подбор или генерация рецепта — СТРОГО ТОЛЬКО ЕСЛИ пользователь прямо попросил рецепт или спросил что приготовить!
+  // 6. Подбор или генерация рецепта — по просьбе о готовке или поиске рецептов
   if (hasCook) {
     let matchedDish = POPULAR_CATALOG.find(d => {
       const dishLower = d.name.toLowerCase();
       const dishWords = dishLower.split(/\s+/);
-      return dishWords.some(w => w.length > 3 && lowerPrompt.includes(w));
+      return dishWords.some(w => {
+        const stem = w.slice(0, 4);
+        return stem.length >= 3 && lowerPrompt.includes(stem);
+      });
     });
 
     if (!matchedDish) {
       const existingMatched = existingState.recipes.find(r => {
-        const rLower = r.name.toLowerCase();
+        const rLower = (r.name || (r as any).title || '').toLowerCase();
         const rWords = rLower.split(/\s+/);
-        return rWords.some(w => w.length > 3 && lowerPrompt.includes(w));
+        return rWords.some(w => {
+          const stem = w.slice(0, 4);
+          return stem.length >= 3 && lowerPrompt.includes(stem);
+        });
       });
       if (existingMatched) {
         matchedDish = {
@@ -301,10 +308,21 @@ export function processAssistantLocal(
     }
 
     if (!matchedDish) {
+      if (/на\s+ужин|ужин/i.test(lowerPrompt)) {
+        matchedDish = POPULAR_CATALOG.find(d => d.category === 'Курица' || d.category === 'Мясо' || d.category === 'Рыба') || POPULAR_CATALOG[0];
+      } else if (/на\s+завтрак|завтрак/i.test(lowerPrompt)) {
+        matchedDish = POPULAR_CATALOG.find(d => d.category === 'Завтрак') || POPULAR_CATALOG[0];
+      } else if (/на\s+обед|обед/i.test(lowerPrompt)) {
+        matchedDish = POPULAR_CATALOG.find(d => d.category === 'Курица' || d.category === 'Мясо') || POPULAR_CATALOG[0];
+      }
+    }
+
+    if (!matchedDish) {
       let dishName = prompt.trim()
-        .replace(/^(хочу(?:\s+поесть|\s+приготовить|\s+сегодня)?|приготовь|свари|пожарь|сделай|рецепт|что приготовить)\s*/i, '')
+        .replace(/^(?:найди(?:\s+мне)?|покажи|поищи|подскажи|какой-нибудь|хочу(?:\s+поесть|\s+приготовить|\s+сегодня)?|приготовь|свари|пожарь|сделай|рецепт(?:\s+с|\s+из)?|что\s+приготовить(?:\s+на\s+(?:ужин|обед|завтрак))?|что\s+поесть)\s*/i, '')
+        .replace(/^[?.,!\s]+|[?.,!\s]+$/g, '')
         .trim();
-      if (!dishName) dishName = 'Аппетитное домашнее блюдо';
+      if (!dishName || dishName.length < 3) dishName = 'Аппетитное домашнее блюдо';
       dishName = dishName.charAt(0).toUpperCase() + dishName.slice(1);
 
       let cat: RecipeCategory = 'Завтрак';
@@ -389,19 +407,26 @@ export async function sendAssistantMessage(
   },
   images?: string[]
 ): Promise<AiAssistantResult> {
-  const inventorySummary = {
-    fridge: existingState.fridge.map(i => i.name),
-    grains: existingState.grains.map(i => i.name),
-    spices: existingState.spices.map(i => i.name)
-  };
-
   try {
     const serverResult = await apiPost('/api/ai-assistant', {
       prompt,
       images: images && images.length > 0 ? images : undefined,
-      inventory: inventorySummary,
-      recipes: existingState.recipes.map(r => r.name),
-      shopping: existingState.shoppingList.map(s => s.name)
+      inventory: {
+        fridge: existingState.fridge,
+        grains: existingState.grains,
+        spices: existingState.spices
+      },
+      recipes: existingState.recipes.map(r => ({
+        id: r.id,
+        name: r.name,
+        title: r.name,
+        category: r.category,
+        portions: r.portions,
+        macros: r.macros,
+        ingredients: r.ingredients,
+        instructions: r.instructions
+      })),
+      shopping: existingState.shoppingList
     });
 
     if (serverResult && serverResult.reply) {

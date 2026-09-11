@@ -7,6 +7,8 @@ import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { generateLocalSuggestions, generateMoreLocalSuggestions } from './src/utils/suggestionEngine';
 import { processAssistantLocal } from './src/utils/aiAssistant';
+import { askGemini } from './src/services/ai/askGemini';
+import type { UserContext } from './src/services/ai/backendFunctions';
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -17,10 +19,7 @@ const ai = new GoogleGenAI({
   }
 });
 
-// Since the project's Gemini key currently has PERMISSION_DENIED (403),
-// we flag this to immediately utilize our high-performance local culinary catalog & offline engines,
-// completely eliminating latency and 403 error logs.
-let isGeminiAccessDenied = true;
+let isGeminiAccessDenied = false;
 
 function isPermissionDeniedError(err: any): boolean {
   return (
@@ -839,7 +838,7 @@ async function startServer() {
   });
 
   app.post("/api/ai-assistant", async (req, res) => {
-    const { prompt: userPrompt, image, images, inventory, recipes, shopping } = req.body || {};
+    const { prompt: userPrompt, image, images, inventory, recipes, shopping, userId } = req.body || {};
     const textPrompt = (typeof userPrompt === 'string' ? userPrompt.trim() : '');
     const allImages: string[] = [];
     if (typeof image === 'string' && image) allImages.push(image);
@@ -853,136 +852,54 @@ async function startServer() {
       return res.status(400).json({ error: "No prompt or image provided" });
     }
 
-    if (!shouldTryGemini()) {
-      // Исполняется локальный парсер
-      const localResult = processAssistantLocal(textPrompt || 'Определить продукты на фото', {
-        recipes: (recipes || []).map((name: string) => ({ id: name, name, ingredients: [], instructions: [] })),
-        fridge: (inventory?.fridge || []).map((name: string) => ({ id: name, name })),
-        grains: (inventory?.grains || []).map((name: string) => ({ id: name, name })),
-        spices: (inventory?.spices || []).map((name: string) => ({ id: name, name })),
-        shoppingList: (shopping || []).map((name: string) => ({ id: name, name, checked: false }))
-      });
-      return res.json(localResult);
-    }
+    const context: UserContext = {
+      userId: userId || 'user_guest',
+      recipes: Array.isArray(recipes)
+        ? recipes.map((r: any) => (typeof r === 'string' ? { id: r, name: r, title: r, ingredients: [] } : { ...r, title: r.title || r.name }))
+        : [],
+      inventory: {
+        fridge: Array.isArray(inventory?.fridge)
+          ? inventory.fridge.map((i: any) => (typeof i === 'string' ? { id: i, name: i } : i))
+          : [],
+        grains: Array.isArray(inventory?.grains)
+          ? inventory.grains.map((i: any) => (typeof i === 'string' ? { id: i, name: i } : i))
+          : [],
+        spices: Array.isArray(inventory?.spices)
+          ? inventory.spices.map((i: any) => (typeof i === 'string' ? { id: i, name: i } : i))
+          : []
+      },
+      shoppingList: Array.isArray(shopping)
+        ? shopping.map((s: any) => (typeof s === 'string' ? { id: s, name: s, checked: false } : s))
+        : []
+    };
 
-    try {
-      const systemInstruction = `
-        Ты умный кулинарный помощник в приложении.
-        Пользователь отправляет сообщение на русском языке (голос, текст и/или прикрепленные фотографии продуктов, холодильника, чека).
-        
-        СТРОГИЕ ПРАВИЛА:
-        1. Если пользователь просит добавить в список покупок ("купи", "в покупки", "добавь в список покупок", "добавить молоко в список покупок" и т.п.):
-           - Добавь товары в addedShoppingItems [{ name: string, quantity?: string }].
-           - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО предлагать рецепты! Поле suggestedRecipe ДОЛЖНО БЫТЬ строго null/отсутствовать!
-           - В поле reply напиши коротко и ясно: "Добавил в список покупок: <названия>".
-        
-        2. Если пользователь говорит, что купил продукты, или они есть дома / в холодильнике, либо прикрепил фото полок без просьбы рецепта:
-           - Добавь их в addedFridgeItems [{ name: string, quantity?: string, section: "fridge"|"grains"|"spices" }].
-           - Крупы, макароны, рис, мука — в "grains".
-           - Масло, специи, соль, соусы — в "spices".
-           - Молоко, сыр, мясо, яйца, овощи, фрукты — в "fridge".
-           - КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО предлагать рецепты! Поле suggestedRecipe ДОЛЖНО БЫТЬ строго null/отсутствовать!
-        
-        3. Поле suggestedRecipe возвращай ТОЛЬКО И ИСКЛЮЧИТЕЛЬНО тогда, когда пользователь прямо спросил "что приготовить", "предложи рецепт", "как сварить", "хочу приготовить"!
-        
-        4. Если продукты закончились / съели — укажи в removedInventory.
+    if (shouldTryGemini() && process.env.GEMINI_API_KEY) {
+      try {
+        const geminiResult = await askGemini(
+          textPrompt,
+          allImages.length > 0 ? allImages : undefined,
+          context,
+          process.env.GEMINI_API_KEY
+        );
 
-        Входной текст запроса пользователя: ${textPrompt || (allImages.length > 0 ? "Пользователь прикрепил фото для распознавания продуктов и добавления в приложение." : "")}
-      `;
-
-      const parts: any[] = [];
-      for (const imgBase64 of allImages) {
-        if (typeof imgBase64 === 'string') {
-          const matches = imgBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-          if (matches && matches.length === 3) {
-            parts.push({
-              inlineData: {
-                mimeType: matches[1],
-                data: matches[2]
-              }
-            });
-          }
+        return res.json(geminiResult);
+      } catch (err: any) {
+        console.warn('Gemini Assistant error, falling back to local engine:', err?.message || err);
+        if (isPermissionDeniedError(err)) {
+          isGeminiAccessDenied = true;
         }
       }
-      parts.push({ text: systemInstruction });
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: { parts },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              reply: { type: Type.STRING },
-              addedFridgeItems: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    quantity: { type: Type.STRING },
-                    section: { type: Type.STRING, enum: ["fridge", "grains", "spices"] }
-                  },
-                  required: ["name", "section"]
-                }
-              },
-              addedShoppingItems: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    quantity: { type: Type.STRING }
-                  },
-                  required: ["name"]
-                }
-              },
-              removedInventory: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              },
-              suggestedRecipe: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  category: { type: Type.STRING, enum: ["Завтрак", "Мясо", "Курица", "Рыба", "Салаты", "Десерты, перекус"] },
-                  ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  portions: { type: Type.NUMBER },
-                  calories: { type: Type.NUMBER }
-                },
-                required: ["name", "ingredients", "instructions"]
-              },
-              isCookToday: { type: Type.BOOLEAN }
-            },
-            required: ["reply"]
-          }
-        }
-      });
-
-      const parsed = JSON.parse(response.text || '{}');
-
-      // Если пользователь не просил рецепт — гарантируем отсутствие unsolicited recipe
-      const isExplicitRecipeRequest = /(?:что\s+(?:можно\s+)?приготовить|как\s+приготовить|рецепт\w*|предложи\s+(?:блюдо|рецепт)|хочу\s+приготовить|хочу\s+поесть|свари(?:ть)?|пожарь(?:те)?|испе(?:чь|ки)|приготовь\w*)\b/i.test(textPrompt);
-      if (!isExplicitRecipeRequest && parsed.suggestedRecipe) {
-        delete parsed.suggestedRecipe;
-      }
-
-      res.json(parsed);
-    } catch (err: any) {
-      if (isPermissionDeniedError(err)) {
-        isGeminiAccessDenied = true;
-      }
-      const localResult = processAssistantLocal(textPrompt || 'Определить продукты на фото', {
-        recipes: (recipes || []).map((name: string) => ({ id: name, name, ingredients: [], instructions: [] })),
-        fridge: (inventory?.fridge || []).map((name: string) => ({ id: name, name })),
-        grains: (inventory?.grains || []).map((name: string) => ({ id: name, name })),
-        spices: (inventory?.spices || []).map((name: string) => ({ id: name, name })),
-        shoppingList: (shopping || []).map((name: string) => ({ id: name, name, checked: false }))
-      });
-      res.json(localResult);
     }
+
+    // Локальный надёжный движок (когда оффлайн или лимит квоты)
+    const localResult = processAssistantLocal(textPrompt || 'Определить продукты на фото', {
+      recipes: context.recipes as any,
+      fridge: (context.inventory?.fridge || []) as any,
+      grains: (context.inventory?.grains || []) as any,
+      spices: (context.inventory?.spices || []) as any,
+      shoppingList: (context.shoppingList || []) as any
+    });
+    return res.json(localResult);
   });
 
   if (process.env.NODE_ENV !== "production") {
