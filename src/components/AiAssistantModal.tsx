@@ -749,7 +749,7 @@ export default function AiAssistantModal({ isOpen, onClose, state }: AiAssistant
           )}
 
           {/* Нижнее поле ввода с кнопками фото, картинки, микрофона и авторасширяемым полем */}
-          <div className="p-3 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.03)] shrink-0">
+          <div className="px-3 pt-2.5 pb-9 sm:pb-4 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.03)] shrink-0">
             {/* Превью прикреплённых фотографий / картинок */}
             {attachedImages.length > 0 && (
               <div className="flex items-center gap-2 p-2 bg-stone-100/80 rounded-2xl mb-2 overflow-x-auto no-scrollbar">

@@ -43,14 +43,14 @@ export default function MacroGoalModal({
 
   useEffect(() => {
     if (isOpen) {
-      setCalories(currentGoal.calories || 2000);
-      setProtein(currentGoal.protein || 110);
-      setFat(currentGoal.fat || 65);
-      setCarbs(currentGoal.carbs || 245);
+      setCalories(currentGoal?.calories || 2000);
+      setProtein(currentGoal?.protein || 110);
+      setFat(currentGoal?.fat || 65);
+      setCarbs(currentGoal?.carbs || 245);
       setMatchedMenu(null);
       setIteration(0);
     }
-  }, [isOpen, currentGoal]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -87,7 +87,6 @@ export default function MacroGoalModal({
 
   const handleGenerate = (nextIteration = 0) => {
     const goal: NutritionGoal = { calories, protein, fat, carbs };
-    onSaveGoal(goal);
     const result = matchDishesForTargetMacros(recipes, goal, selectedSlots, nextIteration);
     setMatchedMenu(result);
     setIteration(nextIteration);
@@ -106,12 +105,14 @@ export default function MacroGoalModal({
       macros: m.macros
     }));
 
+    const goal: NutritionGoal = { calories, protein, fat, carbs };
+    onSaveGoal(goal);
     onApplyPlan(dateStr, plannedItems);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4 backdrop-blur-xs">
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4 backdrop-blur-xs">
       <div className="bg-white w-full max-w-lg max-h-[90vh] rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
         
         {/* Header */}
@@ -238,18 +239,6 @@ export default function MacroGoalModal({
             </div>
           </div>
 
-          {/* Action to Generate */}
-          {!matchedMenu && (
-            <button
-              type="button"
-              onClick={() => handleGenerate(0)}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Sparkles size={18} />
-              <span>Подобрать меню</span>
-            </button>
-          )}
-
           {/* Matched Result */}
           {matchedMenu && (
             <div className="space-y-3 pt-2">
@@ -305,30 +294,43 @@ export default function MacroGoalModal({
                   );
                 })}
               </div>
-
-              {/* Controls */}
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleGenerate(iteration + 1)}
-                  className="flex-1 py-3 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-2xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <RefreshCw size={15} />
-                  <span>Другой вариант</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleApplyToCalendar}
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-98 transition-all cursor-pointer"
-                >
-                  <Check size={16} strokeWidth={3} />
-                  <span>Применить в календарь</span>
-                </button>
-              </div>
             </div>
           )}
 
+        </div>
+
+        {/* Sticky Action Footer */}
+        <div className="shrink-0 bg-white p-3.5 sm:p-4 pb-6 sm:pb-4 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] flex gap-2.5 items-center">
+          {!matchedMenu ? (
+            <button
+              type="button"
+              onClick={() => handleGenerate(0)}
+              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs sm:text-sm shadow-sm active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Sparkles size={17} />
+              <span>Подобрать меню</span>
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => handleGenerate(iteration + 1)}
+                className="py-3.5 px-4 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+              >
+                <RefreshCw size={15} />
+                <span>Другой вариант</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleApplyToCalendar}
+                className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm active:scale-98 transition-all cursor-pointer"
+              >
+                <Check size={17} strokeWidth={3} />
+                <span>Подтвердить</span>
+              </button>
+            </>
+          )}
         </div>
 
       </div>

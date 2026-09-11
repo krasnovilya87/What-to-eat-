@@ -465,6 +465,19 @@ export function useAppState() {
     setPlannedMeals(prev => (prev || []).filter(m => m.date !== date));
   }, []);
 
+  const movePlannedMeal = useCallback((id: string, targetDate: string, targetSlotId?: MealSlotId) => {
+    setPlannedMeals(prev => (prev || []).map(m => {
+      if (m.id === id) {
+        return {
+          ...m,
+          date: targetDate,
+          ...(targetSlotId ? { slotId: targetSlotId } : {})
+        };
+      }
+      return m;
+    }));
+  }, []);
+
   const applyDayPlan = useCallback((date: string, meals: Array<Omit<PlannedMeal, 'id' | 'date'>>) => {
     const newMeals: PlannedMeal[] = meals.map(m => ({
       ...m,
@@ -538,6 +551,7 @@ export function useAppState() {
     addPlannedMeal,
     removePlannedMeal,
     updatePlannedMealPortions,
+    movePlannedMeal,
     clearDayPlan,
     applyDayPlan,
     currentUser,

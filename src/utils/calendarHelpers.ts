@@ -1,4 +1,5 @@
 import { Recipe, PlannedMeal, NutritionGoal, MealSlotId, Macros, DEFAULT_MEAL_SLOTS } from '../types';
+import { DEFAULT_RUSSIAN_RECIPES } from '../data/russianSeedData';
 
 export function getTodayDateStr(): string {
   const now = new Date();
@@ -184,34 +185,56 @@ export function matchDishesForTargetMacros(
   selectedSlots: MealSlotId[],
   iterationOffset = 0
 ): MatchedDayMenu | null {
-  if (recipes.length === 0 || selectedSlots.length === 0 || target.calories <= 0) {
+  // Гарантируем наличие достаточной базы рецептов
+  let pool = (recipes && recipes.length > 0) ? [...recipes] : [];
+  if (pool.length < 5) {
+    const existingNames = new Set(pool.map(r => r.name.toLowerCase().trim()));
+    for (const defRec of DEFAULT_RUSSIAN_RECIPES) {
+      if (!existingNames.has(defRec.name.toLowerCase().trim())) {
+        pool.push(defRec);
+      }
+    }
+  }
+
+  const activeSlots = (selectedSlots && selectedSlots.length > 0)
+    ? selectedSlots
+    : (['breakfast', 'lunch', 'dinner', 'snack'] as MealSlotId[]);
+
+  const safeTarget: NutritionGoal = {
+    calories: target && target.calories > 0 ? target.calories : 2000,
+    protein: target && target.protein > 0 ? target.protein : 110,
+    fat: target && target.fat > 0 ? target.fat : 65,
+    carbs: target && target.carbs > 0 ? target.carbs : 245
+  };
+
+  if (pool.length === 0) {
     return null;
   }
 
   // Распределяем рецепты по слотам
-  const breakfastPool = recipes.filter(r => r.category === 'Завтрак' || /каша|омлет|сырник|блин|яйц|творог/i.test(r.name));
-  const lunchPool = recipes.filter(r => r.category === 'Мясо' || r.category === 'Курица' || r.category === 'Рыба' || /борщ|суп|котлет|жарк|пюре/i.test(r.name));
-  const dinnerPool = recipes.filter(r => r.category === 'Рыба' || r.category === 'Курица' || r.category === 'Салаты' || r.category === 'Мясо');
-  const snackPool = recipes.filter(r => r.category === 'Десерты, перекус' || r.category === 'Салаты' || r.category === 'Завтрак');
+  const breakfastPool = pool.filter(r => r.category === 'Завтрак' || /каша|омлет|сырник|блин|яйц|творог/i.test(r.name));
+  const lunchPool = pool.filter(r => r.category === 'Мясо' || r.category === 'Курица' || r.category === 'Рыба' || /борщ|суп|котлет|жарк|пюре/i.test(r.name));
+  const dinnerPool = pool.filter(r => r.category === 'Рыба' || r.category === 'Курица' || r.category === 'Салаты' || r.category === 'Мясо');
+  const snackPool = pool.filter(r => r.category === 'Десерты, перекус' || r.category === 'Салаты' || r.category === 'Завтрак');
 
   const getSlotPool = (slotId: MealSlotId): Recipe[] => {
     switch (slotId) {
       case 'breakfast':
-        return breakfastPool.length > 0 ? breakfastPool : recipes;
+        return breakfastPool.length > 0 ? breakfastPool : pool;
       case 'lunch':
-        return lunchPool.length > 0 ? lunchPool : recipes;
+        return lunchPool.length > 0 ? lunchPool : pool;
       case 'dinner':
-        return dinnerPool.length > 0 ? dinnerPool : recipes;
+        return dinnerPool.length > 0 ? dinnerPool : pool;
       case 'afternoon_snack':
       case 'snack':
-        return snackPool.length > 0 ? snackPool : recipes;
+        return snackPool.length > 0 ? snackPool : pool;
       default:
-        return recipes;
+        return pool;
     }
   };
 
   // Собираем кандидатов для каждого слота
-  const slotCandidates: Array<{ slotId: MealSlotId; pool: Recipe[] }> = selectedSlots.map(slotId => ({
+  const slotCandidates: Array<{ slotId: MealSlotId; pool: Recipe[] }> = activeSlots.map(slotId => ({
     slotId,
     pool: getSlotPool(slotId)
   }));
